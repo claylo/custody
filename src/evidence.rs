@@ -106,7 +106,7 @@ impl SummaryDocument {
         let Some(evidence) = self.evidence.as_ref() else {
             return vec![issue(
                 "missing_evidence",
-                "summary has no evidence section",
+                "summary is missing evidence section",
                 None,
                 None,
             )];
