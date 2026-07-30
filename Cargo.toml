@@ -1,0 +1,33 @@
+[package]
+name = "receipts"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "Apache-2.0 OR MIT"
+description = "Deterministic evidence validation for LLM summaries of PDF sources"
+repository = "https://github.com/claylo/receipts"
+keywords = ["pdf", "ocr", "evidence", "validation", "markdown"]
+categories = ["command-line-utilities", "text-processing"]
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4.6", features = ["derive"] }
+directories = "6.0"
+librebar = { version = "=0.3.0", features = ["cli", "config"] }
+pulldown-cmark = "0.13"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3.27"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+too_many_lines = "allow"

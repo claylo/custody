@@ -1,0 +1,20 @@
+# receipts.yaml — the directory holding this file is the corpus root.
+# All templates are relative to it and must contain {id}.
+corpus:
+  summaries: "summaries/{id}.yaml"
+  markdown:
+    - "md/{id}.md"
+    - "md/{id}/{id}.md"
+  pdf: "pdfs/{id}.pdf"
+
+cache:
+  # null uses the platform cache directory
+  # (~/Library/Caches/receipts/pdf-text on macOS).
+  # Set a path to keep extraction artifacts beside the corpus.
+  root: null
+
+pdf:
+  ocr:
+    enabled: true
+    dpi: 300
+    lang: eng
