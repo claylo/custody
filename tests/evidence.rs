@@ -3,6 +3,7 @@ use std::fmt::Write as _;
 use receipts::{
     evidence::{PdfBackend, parse_summary},
     hash::sha256_bytes,
+    terms::Terms,
 };
 
 const HASH_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -13,7 +14,7 @@ fn parses_the_complete_contract_and_hashes_decoded_claim_values() {
     let claim = "A folded claim with one logical line.\n";
     let claim_hash = sha256_bytes(claim.as_bytes());
     let yaml = valid_yaml(&claim_hash);
-    let summary = parse_summary(&yaml).unwrap();
+    let summary = parse_summary(&yaml, &Terms::default()).unwrap();
 
     assert_eq!(summary.id, "smith-2019");
     assert_eq!(summary.claims, [claim]);
@@ -24,7 +25,11 @@ fn parses_the_complete_contract_and_hashes_decoded_claim_values() {
         PdfBackend::MutoolNative
     );
     assert_eq!(summary.claim_hash(0).unwrap(), claim_hash);
-    assert!(summary.validate_evidence_structure().is_empty());
+    assert!(
+        summary
+            .validate_evidence_structure(&Terms::default())
+            .is_empty()
+    );
 }
 
 #[test]
@@ -38,8 +43,8 @@ fn reports_missing_duplicate_and_out_of_range_claim_coverage() {
          \n    - claim: 9\n      claim_sha256: \"{claim_hash}\"\n      locators: []\n"
     )
     .unwrap();
-    let summary = parse_summary(&yaml).unwrap();
-    let issues = summary.validate_evidence_structure();
+    let summary = parse_summary(&yaml, &Terms::default()).unwrap();
+    let issues = summary.validate_evidence_structure(&Terms::default());
 
     assert!(issues.iter().any(|issue| issue.code == "duplicate_entry"));
     assert!(
@@ -55,8 +60,8 @@ fn reports_stale_claim_hashes_and_invalid_coordinates() {
     let mut yaml = valid_yaml(HASH_A);
     yaml = yaml.replace("line: 1", "line: 0");
     yaml = yaml.replace("page: 1", "page: 0");
-    let summary = parse_summary(&yaml).unwrap();
-    let issues = summary.validate_evidence_structure();
+    let summary = parse_summary(&yaml, &Terms::default()).unwrap();
+    let issues = summary.validate_evidence_structure(&Terms::default());
 
     assert!(issues.iter().any(|issue| issue.code == "stale_hash"));
     assert!(
@@ -75,15 +80,17 @@ fn rejects_unknown_evidence_fields() {
         "            backend: mutool-native\n            occurrence: 2",
     );
 
-    assert!(parse_summary(&yaml).is_err());
+    assert!(parse_summary(&yaml, &Terms::default()).is_err());
 }
 
 #[test]
 fn requires_evidence_when_structural_validation_is_requested() {
-    let summary =
-        parse_summary("id: smith-2019\nclaims:\n  - \"A claim long enough to validate.\"\n")
-            .unwrap();
-    let issues = summary.validate_evidence_structure();
+    let summary = parse_summary(
+        "id: smith-2019\nclaims:\n  - \"A claim long enough to validate.\"\n",
+        &Terms::default(),
+    )
+    .unwrap();
+    let issues = summary.validate_evidence_structure(&Terms::default());
 
     assert!(issues.iter().any(|issue| issue.code == "missing_evidence"));
 }

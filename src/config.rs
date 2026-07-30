@@ -16,6 +16,7 @@ pub struct Config {
     pub corpus: CorpusLayout,
     pub cache: CacheConfig,
     pub pdf: PdfConfig,
+    pub terms: crate::terms::Terms,
 }
 
 /// Path templates resolved against the corpus root. `{id}` is substituted.
@@ -142,6 +143,7 @@ fn validate(config: &Config) -> Result<()> {
     if config.pdf.ocr.lang.is_empty() {
         bail!("pdf.ocr.lang must not be empty");
     }
+    config.terms.validate()?;
     Ok(())
 }
 

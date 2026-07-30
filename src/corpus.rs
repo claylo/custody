@@ -13,6 +13,7 @@ pub struct Corpus {
     layout: CorpusLayout,
     cache_root: PathBuf,
     config_file: Option<PathBuf>,
+    terms: crate::terms::Terms,
 }
 
 impl Corpus {
@@ -44,7 +45,14 @@ impl Corpus {
             layout: config.corpus,
             cache_root,
             config_file,
+            terms: config.terms,
         })
+    }
+
+    /// Vocabulary this corpus uses for a claim.
+    #[must_use]
+    pub const fn terms(&self) -> &crate::terms::Terms {
+        &self.terms
     }
 
     #[must_use]

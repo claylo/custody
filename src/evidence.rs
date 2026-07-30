@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::{hash::sha256_bytes, markdown::UnitKind, normalize::normalize};
+use crate::{hash::sha256_bytes, markdown::UnitKind, normalize::normalize, terms::Terms};
 
 /// Summary fields needed for evidence validation.
 #[derive(Debug, Clone, Deserialize)]
@@ -87,8 +87,10 @@ pub struct EvidenceIssue {
 }
 
 /// Parse a complete summary while retaining only validation-relevant fields.
-pub fn parse_summary(content: &str) -> Result<SummaryDocument> {
-    let value = librebar::config::parse_yaml(content).context("failed to parse summary YAML")?;
+pub fn parse_summary(content: &str, terms: &Terms) -> Result<SummaryDocument> {
+    let mut value =
+        librebar::config::parse_yaml(content).context("failed to parse summary YAML")?;
+    terms.canonicalize(&mut value)?;
     serde_json::from_value(value).context("failed to decode summary evidence")
 }
 
@@ -102,7 +104,7 @@ impl SummaryDocument {
 
     /// Validate evidence shape and bind every entry to its current claim.
     #[must_use]
-    pub fn validate_evidence_structure(&self) -> Vec<EvidenceIssue> {
+    pub fn validate_evidence_structure(&self, terms: &Terms) -> Vec<EvidenceIssue> {
         let Some(evidence) = self.evidence.as_ref() else {
             return vec![issue(
                 "missing_evidence",
@@ -122,9 +124,11 @@ impl SummaryDocument {
                 issues.push(issue(
                     "entry_out_of_range",
                     format!(
-                        "evidence claim {} is out of range for {} claims",
+                        "evidence {} {} is out of range for {} {}",
+                        terms.claim,
                         entry.claim,
-                        self.claims.len()
+                        self.claims.len(),
+                        terms.claims
                     ),
                     Some(entry.claim),
                     None,
@@ -136,8 +140,8 @@ impl SummaryDocument {
                     issues.push(issue(
                         "stale_hash",
                         format!(
-                            "claim {} hash is stale: expected {actual}, found {}",
-                            entry.claim, entry.claim_sha256
+                            "{} {} hash is stale: expected {actual}, found {}",
+                            terms.claim, entry.claim, entry.claim_sha256
                         ),
                         Some(entry.claim),
                         None,
@@ -147,13 +151,13 @@ impl SummaryDocument {
             if entry.locators.is_empty() {
                 issues.push(issue(
                     "empty_locators",
-                    format!("claim {} has no locators", entry.claim),
+                    format!("{} {} has no locators", terms.claim, entry.claim),
                     Some(entry.claim),
                     None,
                 ));
             }
             validate_hash(
-                "claim_sha256",
+                &format!("{}_sha256", terms.claim),
                 &entry.claim_sha256,
                 Some(entry.claim),
                 &mut issues,
@@ -168,14 +172,14 @@ impl SummaryDocument {
             match count {
                 0 => issues.push(issue(
                     "missing_evidence_entry",
-                    format!("missing evidence for claim {index}"),
+                    format!("missing evidence for {} {index}", terms.claim),
                     Some(index),
                     None,
                 )),
                 1 => {}
                 _ => issues.push(issue(
                     "duplicate_entry",
-                    format!("claim {index} has {count} evidence entries"),
+                    format!("{} {index} has {count} evidence entries", terms.claim),
                     Some(index),
                     None,
                 )),

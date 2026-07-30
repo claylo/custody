@@ -138,6 +138,43 @@ without evidence is never a validated document. Bare `receipts check` validates
 every evidence-bearing summary and skips the rest. `audit` reports missing
 evidence without failing; `audit --strict` makes it fatal.
 
+## Vocabulary
+
+`claim` is a deliberate default, not an assumption: a claim is definitionally an
+assertion that requires support, which is exactly what this tool checks. If your
+field words it differently, say so:
+
+```yaml
+terms:
+  claim: proposition
+  claims: propositions
+```
+
+Documents then use your vocabulary throughout — the document key, the nested
+`evidence` key, the entry index, and the `_sha256` suffix:
+
+```yaml
+id: smith-2019
+propositions:
+  - "Transport remained laminar across all three test regimes."
+evidence:
+  propositions:
+    - proposition: 0
+      proposition_sha256: "..."
+      locators: [...]
+```
+
+Both forms are explicit because English pluralization is unreliable — `thesis`
+and `theses` would defeat any rule worth writing. Human-readable messages follow
+your vocabulary; `locate` emits it too.
+
+Two things stay fixed regardless. **Error codes** are vocabulary-free
+(`missing_evidence_entry`, `stale_hash`, `entry_out_of_range`,
+`duplicate_entry`), so a script consuming `--json` is portable across corpora.
+And **`--claim N` keeps its name**, because it takes an index rather than the
+word: the command is identical whichever vocabulary a document uses, and a
+configurable flag would fragment every example and shell script.
+
 ## Cache
 
 Tesseract TSV is reusable runtime data, content-addressed by the PDF digest,

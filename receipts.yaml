@@ -18,3 +18,9 @@ pdf:
     enabled: true
     dpi: 300
     lang: eng
+
+terms:
+  # The word this corpus uses for a claim. Both forms are explicit; no
+  # pluralization is inferred, because English is unreliable about it.
+  claim: claim
+  claims: claims

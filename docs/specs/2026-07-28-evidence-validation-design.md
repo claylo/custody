@@ -126,6 +126,45 @@ found, so a misplaced config is visible rather than silent.
 Deriving the root from the config file, rather than probing for marker files,
 keeps the tool free of assumptions about what else a corpus contains.
 
+### Claim vocabulary
+
+`claim` is the default word, chosen because a claim is definitionally an
+assertion requiring support. A corpus may override it:
+
+```yaml
+terms:
+  claim: proposition
+  claims: propositions
+```
+
+Both forms are explicit; no pluralization is inferred, because English is
+unreliable about it.
+
+Documents are canonicalized to the internal vocabulary at the parse boundary and
+localized back on output. Because parsing already routes YAML through a
+`serde_json::Value` before deserialization, this is a boundary transform: no
+internal type, validation path, or error-accumulation site is aware that the
+vocabulary is configurable.
+
+Exactly four paths are rewritten, so nothing deeper in a caller's own document
+is renamed by accident:
+
+| canonical | with `terms.claim: proposition` |
+|---|---|
+| `$.claims` | `$.propositions` |
+| `$.evidence.claims` | `$.evidence.propositions` |
+| `$.evidence.claims[*].claim` | `…[*].proposition` |
+| `$.evidence.claims[*].claim_sha256` | `…[*].proposition_sha256` |
+
+A document using both vocabularies at once is an error rather than a silent
+overwrite.
+
+Two things stay fixed. Error codes are vocabulary-free, so a consumer of `--json`
+is portable across corpora. And `--claim N` keeps its canonical name: it takes an
+index, so the command is identical whichever vocabulary a document uses, and
+clap fixes flag names at compile time anyway — deriving them from configuration
+would require parsing before the parser exists.
+
 ## Build-vs-Adopt Decision
 
 The design extends established tools instead of implementing PDF parsing or

@@ -18,6 +18,7 @@ use crate::{
     normalize::normalize,
     output::print_json,
     pdf::{PdfBbox, PdfTextProvider, PdfTools, matching_bbox},
+    terms::Terms,
     validate::{ValidationReport, validate_document},
 };
 
@@ -236,6 +237,7 @@ fn locate(corpus: &Corpus, args: &LocateArgs, json: bool) -> Result<()> {
     let summary = parse_summary(
         &fs::read_to_string(&summary_path)
             .with_context(|| format!("failed to read {}", summary_path.display()))?,
+        corpus.terms(),
     )?;
     if summary.id != args.id {
         bail!(
@@ -321,10 +323,12 @@ fn locate(corpus: &Corpus, args: &LocateArgs, json: bool) -> Result<()> {
             mean_confidence,
         }),
     };
+    let mut payload = serde_json::to_value(&result).context("failed to encode evidence record")?;
+    corpus.terms().localize_locate(&mut payload);
     if json {
-        print_json(&result)
+        print_json(&payload)
     } else {
-        print_locate_yaml(&result)
+        print_locate_yaml(&payload, corpus.terms())
     }
 }
 
@@ -526,7 +530,8 @@ fn read_summary(corpus: &Corpus, id: &str) -> Result<crate::evidence::SummaryDoc
     let path = corpus.summary_path(id)?;
     let source =
         fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
-    parse_summary(&source).with_context(|| format!("failed to parse {}", path.display()))
+    parse_summary(&source, corpus.terms())
+        .with_context(|| format!("failed to parse {}", path.display()))
 }
 
 fn summary_ids(corpus: &Corpus) -> Result<Vec<String>> {
@@ -607,14 +612,20 @@ fn error_report(
     }
 }
 
-fn print_locate_yaml(result: &LocateResult) -> Result<()> {
-    let markdown = serde_json::to_string(&result.markdown)?;
-    let pdf = serde_json::to_string(&result.pdf)?;
-    let claim = serde_json::to_string_pretty(&result.claim)?;
-    if let Some(pdf_match) = &result.pdf_match {
+fn print_locate_yaml(payload: &serde_json::Value, terms: &Terms) -> Result<()> {
+    let field = |name: &str| {
+        payload
+            .get(name)
+            .unwrap_or(&serde_json::Value::Null)
+            .clone()
+    };
+    let markdown = serde_json::to_string(&field("markdown"))?;
+    let pdf = serde_json::to_string(&field("pdf"))?;
+    let entry = serde_json::to_string_pretty(&field(&terms.claim))?;
+    if let Some(pdf_match) = payload.get("pdf_match") {
         let diagnostic = serde_json::to_string(pdf_match)?;
         println!("# PDF match diagnostic: {diagnostic}");
     }
-    println!("markdown: {markdown}\npdf: {pdf}\nclaim: {claim}");
+    println!("markdown: {markdown}\npdf: {pdf}\n{}: {entry}", terms.claim);
     Ok(())
 }

@@ -9,4 +9,5 @@ pub mod markdown;
 pub mod normalize;
 pub mod output;
 pub mod pdf;
+pub mod terms;
 pub mod validate;

@@ -32,7 +32,7 @@ pub fn validate_document(
     summary: &SummaryDocument,
     provider: &impl PdfTextProvider,
 ) -> ValidationReport {
-    let mut issues = summary.validate_evidence_structure();
+    let mut issues = summary.validate_evidence_structure(corpus.terms());
     let Some(evidence) = summary.evidence.as_ref() else {
         return ValidationReport {
             id: summary.id.clone(),

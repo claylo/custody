@@ -141,3 +141,64 @@ fn stdout(output: &Output) -> String {
 fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
+
+#[test]
+fn reports_uncovered_claims_using_the_configured_vocabulary() {
+    let temp = tempfile::tempdir().unwrap();
+    for path in ["summaries", "md/smith-2019", "pdfs"] {
+        fs::create_dir_all(temp.path().join(path)).unwrap();
+    }
+    fs::write(
+        temp.path().join("receipts.yaml"),
+        concat!(
+            "cache:\n  root: \".cache/pdf-text\"\n",
+            "terms:\n  claim: proposition\n  claims: propositions\n",
+        ),
+    )
+    .unwrap();
+    // An evidence block that covers nothing, so the uncovered-entry message
+    // fires. Both the document key and the nested evidence key use the
+    // configured vocabulary.
+    let markdown_sha = "a".repeat(64);
+    let pdf_sha = "b".repeat(64);
+    fs::write(
+        temp.path().join("summaries/smith-2019.yaml"),
+        format!(
+            "id: smith-2019
+propositions:
+  - \"Transport remained laminar.\"
+evidence:
+  markdown:
+    source: \"md/smith-2019/smith-2019.md\"
+    sha256: \"{markdown_sha}\"
+  pdf:
+    source: \"pdfs/smith-2019.pdf\"
+    sha256: \"{pdf_sha}\"
+  propositions: []
+"
+        ),
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("md/smith-2019/smith-2019.md"),
+        "Transport remained laminar.\n",
+    )
+    .unwrap();
+    fs::write(temp.path().join("pdfs/smith-2019.pdf"), b"%PDF-1.7\n").unwrap();
+
+    let output = receipts(temp.path(), &["check", "smith-2019"]);
+    let stderr = stderr(&output);
+
+    assert!(
+        !output.status.success(),
+        "uncovered propositions must fail: {stderr}"
+    );
+    assert!(
+        stderr.contains("proposition"),
+        "message should use the configured vocabulary: {stderr}"
+    );
+    assert!(
+        !stderr.contains("claim"),
+        "message should not leak the canonical vocabulary: {stderr}"
+    );
+}
