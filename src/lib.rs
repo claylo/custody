@@ -3,4 +3,5 @@
 pub mod config;
 pub mod corpus;
 pub mod hash;
+pub mod markdown;
 pub mod normalize;
