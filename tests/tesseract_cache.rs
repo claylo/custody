@@ -1,8 +1,10 @@
-use std::fs;
+use std::{cell::Cell, fs, path::Path};
 
+use anyhow::Result;
 use receipts::pdf::{
     cache::{CacheManifest, OcrCache, OcrProfile, cache_key},
-    tesseract::{parse_orientation, parse_tsv},
+    matching_bbox,
+    tesseract::{OcrEngine, PageRenderer, ocr_page, parse_orientation, parse_tsv},
 };
 
 fn profile(mutool: &str, tesseract: &str) -> OcrProfile {
@@ -13,6 +15,9 @@ fn profile(mutool: &str, tesseract: &str) -> OcrProfile {
         page_segmentation_mode: 3,
         mutool_version: mutool.to_owned(),
         tesseract_version: tesseract.to_owned(),
+        render_command: "mutool draw -q -r 300 [-R ROTATION] -o OUTPUT PDF PAGE".to_owned(),
+        orientation_command: "tesseract IMAGE stdout -l osd --psm 0".to_owned(),
+        recognition_command: "tesseract IMAGE stdout -l eng --psm 3 tsv".to_owned(),
     }
 }
 
@@ -23,6 +28,13 @@ fn reconstructs_words_in_tsv_order() {
 
     assert!(page.text.contains("42.8% within tolerance"));
     assert_eq!(page.mean_confidence, Some(91.5));
+    let extracted = page.into_extracted_page(1);
+    assert_eq!(extracted.mean_confidence, Some(91.5));
+    let bbox = matching_bbox(&extracted, "42.8% within tolerance").unwrap();
+    assert_eq!(
+        (bbox.x, bbox.y, bbox.width, bbox.height),
+        (84.0, 110.0, 274.0, 32.0)
+    );
 }
 
 #[test]
@@ -75,4 +87,152 @@ fn parses_tesseract_rotation_instruction() {
         90
     );
     assert_eq!(parse_orientation("no orientation result"), 0);
+}
+
+#[test]
+fn cache_manifest_rejects_path_components_and_invalid_pages() {
+    assert!(
+        CacheManifest::new(
+            "../escape".to_owned(),
+            1,
+            profile("mutool 1.28", "tesseract 5.5")
+        )
+        .is_err()
+    );
+    assert!(
+        CacheManifest::new("a".repeat(64), 0, profile("mutool 1.28", "tesseract 5.5")).is_err()
+    );
+    let mut unsafe_profile = profile("mutool 1.28", "tesseract 5.5");
+    unsafe_profile.name = "../profile".to_owned();
+    assert!(CacheManifest::new("a".repeat(64), 1, unsafe_profile).is_err());
+}
+
+#[test]
+fn second_ocr_request_reuses_tsv_without_rendering_or_recognition() {
+    struct CountingRenderer {
+        renders: Cell<usize>,
+    }
+    impl PageRenderer for CountingRenderer {
+        fn version(&self) -> Result<String> {
+            Ok("mutool test".to_owned())
+        }
+
+        fn render_page(
+            &self,
+            _pdf: &Path,
+            _page: usize,
+            _dpi: u16,
+            _rotation: i16,
+            output: &Path,
+        ) -> Result<()> {
+            self.renders.set(self.renders.get() + 1);
+            fs::write(output, b"image")?;
+            Ok(())
+        }
+    }
+
+    struct CountingOcr {
+        orientations: Cell<usize>,
+        recognitions: Cell<usize>,
+    }
+    impl OcrEngine for CountingOcr {
+        fn version(&self) -> Result<String> {
+            Ok("tesseract test".to_owned())
+        }
+
+        fn rotation(&self, _image: &Path) -> Result<i16> {
+            self.orientations.set(self.orientations.get() + 1);
+            Ok(90)
+        }
+
+        fn tsv(&self, _image: &Path) -> Result<String> {
+            self.recognitions.set(self.recognitions.get() + 1);
+            Ok(include_str!("fixtures/tesseract-rotated-table.tsv").to_owned())
+        }
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let pdf = temp.path().join("source.pdf");
+    fs::write(&pdf, b"fixture").unwrap();
+    let cache = OcrCache::new(temp.path().join("cache"));
+    let renderer = CountingRenderer {
+        renders: Cell::new(0),
+    };
+    let engine = CountingOcr {
+        orientations: Cell::new(0),
+        recognitions: Cell::new(0),
+    };
+    let hash = "c".repeat(64);
+
+    ocr_page(&renderer, &engine, &cache, &pdf, &hash, 2).unwrap();
+    ocr_page(&renderer, &engine, &cache, &pdf, &hash, 2).unwrap();
+
+    assert_eq!(renderer.renders.get(), 2);
+    assert_eq!(engine.orientations.get(), 1);
+    assert_eq!(engine.recognitions.get(), 1);
+    let request = CacheManifest::new(hash, 2, profile("mutool test", "tesseract test")).unwrap();
+    let stored: CacheManifest =
+        serde_json::from_slice(&fs::read(cache.entry_dir(&request).join("manifest.json")).unwrap())
+            .unwrap();
+    assert_eq!(stored.render_rotation_degrees, 90);
+}
+
+#[test]
+fn failed_ocr_removes_temporary_page_renderings() {
+    struct Renderer;
+    impl PageRenderer for Renderer {
+        fn version(&self) -> Result<String> {
+            Ok("mutool test".to_owned())
+        }
+
+        fn render_page(
+            &self,
+            _pdf: &Path,
+            _page: usize,
+            _dpi: u16,
+            _rotation: i16,
+            output: &Path,
+        ) -> Result<()> {
+            fs::write(output, b"image")?;
+            Ok(())
+        }
+    }
+
+    struct FailingOcr;
+    impl OcrEngine for FailingOcr {
+        fn version(&self) -> Result<String> {
+            Ok("tesseract test".to_owned())
+        }
+
+        fn rotation(&self, _image: &Path) -> Result<i16> {
+            anyhow::bail!("orientation failed")
+        }
+
+        fn tsv(&self, _image: &Path) -> Result<String> {
+            unreachable!("recognition must not run after orientation failure")
+        }
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let pdf = temp.path().join("source.pdf");
+    fs::write(&pdf, b"fixture").unwrap();
+    let cache_root = temp.path().join("cache");
+    let cache = OcrCache::new(cache_root.clone());
+
+    assert!(ocr_page(&Renderer, &FailingOcr, &cache, &pdf, &"d".repeat(64), 3).is_err());
+    assert!(!contains_png(&cache_root));
+}
+
+fn contains_png(directory: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(directory) else {
+        return false;
+    };
+    entries.filter_map(Result::ok).any(|entry| {
+        let path = entry.path();
+        if path.is_dir() {
+            contains_png(&path)
+        } else {
+            path.extension().and_then(|value| value.to_str()) == Some("png")
+        }
+    })
 }

@@ -8,27 +8,63 @@ use std::{
 use anyhow::{Context, Result, bail};
 
 use super::{
-    ExtractedPage,
+    ExtractedPage, PdfBbox, TextSpan,
     cache::{CacheManifest, OcrCache, OcrProfile},
     mutool::Mutool,
 };
 use crate::normalize::normalize;
 
-const PROFILE_NAME: &str = "tesseract-eng-300dpi-v1";
+pub const PROFILE_NAME: &str = "tesseract-eng-300dpi-v1";
 const OCR_DPI: u16 = 300;
 const OCR_PSM: u8 = 3;
+const RENDER_COMMAND: &str = "mutool draw -q -r 300 [-R ROTATION] -o OUTPUT PDF PAGE";
+const ORIENTATION_COMMAND: &str = "tesseract IMAGE stdout -l osd --psm 0";
+const RECOGNITION_COMMAND: &str = "tesseract IMAGE stdout -l eng --psm 3 tsv";
 
 /// Parsed word text and diagnostic confidence from a Tesseract TSV.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParsedTsv {
     pub text: String,
     pub mean_confidence: Option<f64>,
+    pub spans: Vec<TextSpan>,
+}
+
+impl ParsedTsv {
+    #[must_use]
+    pub fn into_extracted_page(self, page: usize) -> ExtractedPage {
+        ExtractedPage {
+            page,
+            text: self.text,
+            spans: self.spans,
+            mean_confidence: self.mean_confidence,
+        }
+    }
 }
 
 /// Tesseract command adapter.
 #[derive(Debug, Clone)]
 pub struct Tesseract {
     executable: String,
+}
+
+/// `MuPDF` behavior required by the page-level OCR pipeline.
+pub trait PageRenderer {
+    fn version(&self) -> Result<String>;
+    fn render_page(
+        &self,
+        pdf: &Path,
+        page: usize,
+        dpi: u16,
+        rotation: i16,
+        output: &Path,
+    ) -> Result<()>;
+}
+
+/// Tesseract behavior required by the page-level OCR pipeline.
+pub trait OcrEngine {
+    fn version(&self) -> Result<String>;
+    fn rotation(&self, image: &Path) -> Result<i16>;
+    fn tsv(&self, image: &Path) -> Result<String>;
 }
 
 impl Default for Tesseract {
@@ -79,10 +115,41 @@ impl Tesseract {
     }
 }
 
+impl PageRenderer for Mutool {
+    fn version(&self) -> Result<String> {
+        Mutool::version(self)
+    }
+
+    fn render_page(
+        &self,
+        pdf: &Path,
+        page: usize,
+        dpi: u16,
+        rotation: i16,
+        output: &Path,
+    ) -> Result<()> {
+        Mutool::render_page(self, pdf, page, dpi, rotation, output)
+    }
+}
+
+impl OcrEngine for Tesseract {
+    fn version(&self) -> Result<String> {
+        Tesseract::version(self)
+    }
+
+    fn rotation(&self, image: &Path) -> Result<i16> {
+        Tesseract::rotation(self, image)
+    }
+
+    fn tsv(&self, image: &Path) -> Result<String> {
+        Tesseract::tsv(self, image)
+    }
+}
+
 /// Extract a page with the fixed OCR profile, reusing a matching cache entry.
 pub fn ocr_page(
-    mutool: &Mutool,
-    tesseract: &Tesseract,
+    mutool: &impl PageRenderer,
+    tesseract: &impl OcrEngine,
     cache: &OcrCache,
     pdf: &Path,
     pdf_sha256: &str,
@@ -98,6 +165,9 @@ pub fn ocr_page(
         page_segmentation_mode: OCR_PSM,
         mutool_version: mutool.version()?,
         tesseract_version: tesseract.version()?,
+        render_command: RENDER_COMMAND.to_owned(),
+        orientation_command: ORIENTATION_COMMAND.to_owned(),
+        recognition_command: RECOGNITION_COMMAND.to_owned(),
     };
     let manifest = CacheManifest::new(pdf_sha256.to_owned(), page, profile)?;
     if let Some(tsv) = cache.load(&manifest)? {
@@ -113,18 +183,23 @@ pub fn ocr_page(
         .as_nanos();
     let initial = directory.join(format!(".page-{}-{nonce}.png", std::process::id()));
     let rotated = directory.join(format!(".page-{}-{nonce}-rotated.png", std::process::id()));
-    mutool.render_page(pdf, page, OCR_DPI, 0, &initial)?;
-    let rotation = tesseract.rotation(&initial)?;
-    let ocr_image = if rotation == 0 {
-        &initial
-    } else {
-        mutool.render_page(pdf, page, OCR_DPI, rotation, &rotated)?;
-        &rotated
-    };
-    let tsv = tesseract.tsv(ocr_image)?;
-    cache.store(&manifest, &tsv)?;
+    let result = (|| {
+        mutool.render_page(pdf, page, OCR_DPI, 0, &initial)?;
+        let rotation = tesseract.rotation(&initial)?;
+        let ocr_image = if rotation == 0 {
+            &initial
+        } else {
+            mutool.render_page(pdf, page, OCR_DPI, rotation, &rotated)?;
+            &rotated
+        };
+        let tsv = tesseract.tsv(ocr_image)?;
+        let stored_manifest = manifest.clone().with_render_rotation(rotation)?;
+        cache.store(&stored_manifest, &tsv)?;
+        Ok::<_, anyhow::Error>(tsv)
+    })();
     let _ = fs::remove_file(&initial);
     let _ = fs::remove_file(&rotated);
+    let tsv = result?;
     extracted_page(page, &tsv)
 }
 
@@ -141,8 +216,11 @@ pub fn parse_tsv(source: &str) -> Result<ParsedTsv> {
         .iter()
         .position(|column| *column == "conf")
         .context("Tesseract TSV has no conf column")?;
+    let geometry_indexes = ["left", "top", "width", "height"]
+        .map(|name| columns.iter().position(|column| *column == name));
     let mut words = Vec::new();
     let mut confidences = Vec::new();
+    let mut spans = Vec::new();
 
     for line in lines {
         let fields: Vec<_> = line.split('\t').collect();
@@ -153,6 +231,26 @@ pub fn parse_tsv(source: &str) -> Result<ParsedTsv> {
             continue;
         }
         words.push(text);
+        let bbox = geometry_indexes
+            .iter()
+            .copied()
+            .collect::<Option<Vec<_>>>()
+            .and_then(|indexes| {
+                let values = indexes
+                    .into_iter()
+                    .map(|index| fields.get(index)?.parse::<f64>().ok())
+                    .collect::<Option<Vec<_>>>()?;
+                Some(PdfBbox {
+                    x: values[0],
+                    y: values[1],
+                    width: values[2],
+                    height: values[3],
+                })
+            });
+        spans.push(TextSpan {
+            text: text.to_owned(),
+            bbox,
+        });
         if let Some(confidence) = fields
             .get(confidence_index)
             .and_then(|value| value.parse::<f64>().ok())
@@ -168,6 +266,7 @@ pub fn parse_tsv(source: &str) -> Result<ParsedTsv> {
     Ok(ParsedTsv {
         text: normalize(&words.join(" ")),
         mean_confidence,
+        spans,
     })
 }
 
@@ -183,10 +282,7 @@ pub fn parse_orientation(output: &str) -> i16 {
 }
 
 fn extracted_page(page: usize, tsv: &str) -> Result<ExtractedPage> {
-    Ok(ExtractedPage {
-        page,
-        text: parse_tsv(tsv)?.text,
-    })
+    Ok(parse_tsv(tsv)?.into_extracted_page(page))
 }
 
 fn run(command: &mut Command, label: &str) -> Result<Output> {

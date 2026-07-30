@@ -158,7 +158,13 @@ fn resolve_root(project_file: Option<&Utf8Path>, start: &Path) -> Result<PathBuf
         } else {
             directory
         };
-        return Ok(PathBuf::from(root.as_str()));
+        // Canonicalize: source containment is checked by comparing a
+        // canonicalized source path against this root, and on macOS a
+        // non-canonical root (/var vs /private/var) fails every comparison.
+        let root = PathBuf::from(root.as_str());
+        return root
+            .canonicalize()
+            .with_context(|| format!("failed to resolve corpus root {}", root.display()));
     }
 
     let mut current = start

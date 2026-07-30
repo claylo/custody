@@ -73,13 +73,21 @@ pub fn validate_document(
         &mut issues,
     );
     validate_source_path(corpus, "pdf", &evidence.pdf.source, &pdf_path, &mut issues);
-    validate_file_hash(
+    let markdown_is_safe = validate_resolved_source(corpus, "markdown", markdown_path, &mut issues);
+    let pdf_is_safe = validate_resolved_source(corpus, "pdf", &pdf_path, &mut issues);
+    if !markdown_is_safe || !pdf_is_safe {
+        return ValidationReport {
+            id: summary.id.clone(),
+            issues,
+        };
+    }
+    let _markdown_sha256 = validate_file_hash(
         "markdown",
         markdown_path,
         &evidence.markdown.sha256,
         &mut issues,
     );
-    validate_file_hash("pdf", &pdf_path, &evidence.pdf.sha256, &mut issues);
+    let actual_pdf_sha256 = validate_file_hash("pdf", &pdf_path, &evidence.pdf.sha256, &mut issues);
 
     let markdown_source = match fs::read_to_string(markdown_path) {
         Ok(source) => source,
@@ -138,7 +146,7 @@ pub fn validate_document(
                 extract_pdf_page(
                     provider,
                     &pdf_path,
-                    &evidence.pdf.sha256,
+                    actual_pdf_sha256.as_deref().unwrap_or_default(),
                     locator.pdf.backend,
                     locator.pdf.page,
                 )
@@ -231,24 +239,68 @@ fn validate_source_path(
     }
 }
 
-fn validate_file_hash(label: &str, path: &Path, expected: &str, issues: &mut Vec<EvidenceIssue>) {
+fn validate_file_hash(
+    label: &str,
+    path: &Path,
+    expected: &str,
+    issues: &mut Vec<EvidenceIssue>,
+) -> Option<String> {
     match sha256_file(path) {
-        Ok(actual) if actual == expected => {}
-        Ok(actual) => issues.push(issue(
-            format!("{label}_hash_mismatch"),
-            format!(
-                "{} hash is stale: expected {actual}, found {expected}",
-                path.display()
-            ),
-            None,
-            None,
-        )),
-        Err(error) => issues.push(issue(
-            format!("{label}_read_failed"),
-            error.to_string(),
-            None,
-            None,
-        )),
+        Ok(actual) if actual == expected => Some(actual),
+        Ok(actual) => {
+            issues.push(issue(
+                format!("{label}_hash_mismatch"),
+                format!(
+                    "{} hash is stale: expected {actual}, found {expected}",
+                    path.display()
+                ),
+                None,
+                None,
+            ));
+            Some(actual)
+        }
+        Err(error) => {
+            issues.push(issue(
+                format!("{label}_read_failed"),
+                error.to_string(),
+                None,
+                None,
+            ));
+            None
+        }
+    }
+}
+
+fn validate_resolved_source(
+    corpus: &Corpus,
+    label: &str,
+    path: &Path,
+    issues: &mut Vec<EvidenceIssue>,
+) -> bool {
+    match path.canonicalize() {
+        Ok(resolved) if resolved.starts_with(corpus.root()) => true,
+        Ok(resolved) => {
+            issues.push(issue(
+                format!("{label}_source_outside_repo"),
+                format!(
+                    "{} resolves outside the corpus to {}",
+                    path.display(),
+                    resolved.display()
+                ),
+                None,
+                None,
+            ));
+            false
+        }
+        Err(error) => {
+            issues.push(issue(
+                format!("{label}_source_unresolvable"),
+                format!("failed to resolve {}: {error}", path.display()),
+                None,
+                None,
+            ));
+            false
+        }
     }
 }
 

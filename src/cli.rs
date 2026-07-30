@@ -17,7 +17,7 @@ use crate::{
     markdown::{exact_count, parse_units},
     normalize::normalize,
     output::print_json,
-    pdf::{PdfTextProvider, PdfTools},
+    pdf::{PdfBbox, PdfTextProvider, PdfTools, matching_bbox},
     validate::{ValidationReport, validate_document},
 };
 
@@ -86,6 +86,7 @@ struct AuditArgs {
     /// Treat summaries without evidence as invalid.
     #[arg(long)]
     strict: bool,
+    ids: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -101,8 +102,23 @@ struct AuditReport {
     valid: usize,
     missing: usize,
     invalid: usize,
+    summaries: Vec<AuditSummary>,
+}
+
+#[derive(Debug, Serialize)]
+struct AuditSummary {
+    id: String,
+    status: AuditStatus,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    invalid_summaries: Vec<ValidationReport>,
+    issues: Vec<crate::evidence::EvidenceIssue>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum AuditStatus {
+    Valid,
+    Missing,
+    Invalid,
 }
 
 #[derive(Debug, Serialize)]
@@ -110,6 +126,17 @@ struct LocateResult {
     markdown: SourceRecord,
     pdf: SourceRecord,
     claim: ClaimEvidence,
+    pdf_match: Option<PdfMatchDiagnostic>,
+}
+
+#[derive(Debug, Serialize)]
+struct PdfMatchDiagnostic {
+    page: usize,
+    backend: PdfBackend,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bbox: Option<PdfBbox>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mean_confidence: Option<f64>,
 }
 
 pub fn run() -> Result<()> {
@@ -125,14 +152,20 @@ pub fn run() -> Result<()> {
     let cwd = std::env::current_dir().context("failed to read current directory")?;
     let corpus = Corpus::discover_from(&cwd, cli.config.as_deref())?;
     match cli.command {
-        Command::Doctor => doctor(&corpus, cli.common.json),
+        Command::Doctor => doctor(&corpus, cli.common.json, cli.common.quiet),
         Command::Locate(args) => locate(&corpus, &args, cli.common.json),
-        Command::Check(args) => check(&corpus, &args.ids, cli.common.json),
-        Command::Audit(args) => audit(&corpus, args.strict, cli.common.json),
+        Command::Check(args) => check(&corpus, &args.ids, cli.common.json, cli.common.quiet),
+        Command::Audit(args) => audit(
+            &corpus,
+            args.strict,
+            &args.ids,
+            cli.common.json,
+            cli.common.quiet,
+        ),
     }
 }
 
-fn doctor(corpus: &Corpus, json: bool) -> Result<()> {
+fn doctor(corpus: &Corpus, json: bool, quiet: bool) -> Result<()> {
     let tools = PdfTools::new(corpus.cache_root().to_path_buf());
     let mut checks = vec![
         ("corpus", true, corpus.root().display().to_string()),
@@ -151,6 +184,16 @@ fn doctor(corpus: &Corpus, json: bool) -> Result<()> {
             Ok(version) => ("tesseract", true, version),
             Err(error) => ("tesseract", false, error.to_string()),
         },
+        (
+            "native profile",
+            true,
+            crate::pdf::mutool::PROFILE_NAME.to_owned(),
+        ),
+        (
+            "OCR profile",
+            true,
+            crate::pdf::tesseract::PROFILE_NAME.to_owned(),
+        ),
     ];
     fs::create_dir_all(tools.cache.root()).with_context(|| {
         format!(
@@ -171,7 +214,7 @@ fn doctor(corpus: &Corpus, json: bool) -> Result<()> {
 
     if json {
         print_json(&checks)?;
-    } else {
+    } else if !quiet {
         for (name, valid, detail) in &checks {
             println!("{name}: {} ({detail})", if *valid { "ok" } else { "error" });
         }
@@ -220,9 +263,24 @@ fn locate(corpus: &Corpus, args: &LocateArgs, json: bool) -> Result<()> {
         .filter(|unit| exact_count(&unit.text, &exact) == 1)
         .collect();
     let [unit] = candidates.as_slice() else {
+        let details = candidates
+            .iter()
+            .map(|unit| {
+                format!(
+                    "{:?} at {}:{}: {:?}",
+                    unit.kind, unit.line, unit.column, unit.text
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
         bail!(
-            "exact text resolves to {} Markdown units; choose unique text or pass coordinates",
-            candidates.len()
+            "exact text resolves to {} Markdown units; choose unique text or pass coordinates{}",
+            candidates.len(),
+            if details.is_empty() {
+                String::new()
+            } else {
+                format!("; candidates: {details}")
+            }
         );
     };
 
@@ -232,7 +290,8 @@ fn locate(corpus: &Corpus, args: &LocateArgs, json: bool) -> Result<()> {
     }
     let pdf_sha256 = sha256_file(&pdf_path)?;
     let tools = PdfTools::new(corpus.cache_root().to_path_buf());
-    let (page, backend) = locate_pdf(&tools, &pdf_path, &pdf_sha256, args.page, &exact)?;
+    let (page, backend, bbox, mean_confidence) =
+        locate_pdf(&tools, &pdf_path, &pdf_sha256, args.page, &exact)?;
     let result = LocateResult {
         markdown: SourceRecord {
             source: relative(corpus, &markdown_path),
@@ -255,6 +314,12 @@ fn locate(corpus: &Corpus, args: &LocateArgs, json: bool) -> Result<()> {
                 pdf: PdfLocator { page, backend },
             }],
         },
+        pdf_match: Some(PdfMatchDiagnostic {
+            page,
+            backend,
+            bbox,
+            mean_confidence,
+        }),
     };
     if json {
         print_json(&result)
@@ -269,7 +334,7 @@ fn locate_pdf(
     pdf_sha256: &str,
     page: Option<usize>,
     exact: &str,
-) -> Result<(usize, PdfBackend)> {
+) -> Result<(usize, PdfBackend, Option<PdfBbox>, Option<f64>)> {
     let native = tools.native_pages(pdf, page)?;
     let native_matches: Vec<_> = native
         .iter()
@@ -279,7 +344,13 @@ fn locate_pdf(
         })
         .collect();
     match native_matches.as_slice() {
-        [(page, 1)] => return Ok((*page, PdfBackend::MutoolNative)),
+        [(page, 1)] => {
+            let bbox = native
+                .iter()
+                .find(|candidate| candidate.page == *page)
+                .and_then(|candidate| matching_bbox(candidate, exact));
+            return Ok((*page, PdfBackend::MutoolNative, bbox, None));
+        }
         [] => {}
         [(page, count)] => {
             bail!("exact text occurs {count} times on native PDF page {page}");
@@ -296,13 +367,18 @@ fn locate_pdf(
     };
     let ocr = tools.ocr_page(pdf, pdf_sha256, page)?;
     match exact_count(&ocr.text, exact) {
-        1 => Ok((page, PdfBackend::TesseractOcr)),
+        1 => Ok((
+            page,
+            PdfBackend::TesseractOcr,
+            matching_bbox(&ocr, exact),
+            ocr.mean_confidence,
+        )),
         0 => bail!("exact text was not found through OCR on physical PDF page {page}"),
         count => bail!("exact text occurs {count} times through OCR on physical PDF page {page}"),
     }
 }
 
-fn check(corpus: &Corpus, ids: &[String], json: bool) -> Result<()> {
+fn check(corpus: &Corpus, ids: &[String], json: bool, quiet: bool) -> Result<()> {
     let targeted = !ids.is_empty();
     let ids = if targeted {
         ids.to_vec()
@@ -317,18 +393,23 @@ fn check(corpus: &Corpus, ids: &[String], json: bool) -> Result<()> {
         summaries: Vec::new(),
     };
     for id in ids {
-        let summary = read_summary(corpus, &id)?;
+        let summary = match read_summary(corpus, &id) {
+            Ok(summary) => summary,
+            Err(error) => {
+                report.invalid += 1;
+                report
+                    .summaries
+                    .push(error_report(id, "summary_parse_failed", error.to_string()));
+                continue;
+            }
+        };
         if summary.id != id {
             report.invalid += 1;
-            report.summaries.push(ValidationReport {
+            report.summaries.push(error_report(
                 id,
-                issues: vec![crate::evidence::EvidenceIssue {
-                    code: "id_mismatch".to_owned(),
-                    message: format!("summary ID {:?} does not match filename", summary.id),
-                    claim: None,
-                    locator: None,
-                }],
-            });
+                "id_mismatch",
+                format!("summary ID {:?} does not match filename", summary.id),
+            ));
             continue;
         }
         if summary.evidence.is_none() && !targeted {
@@ -343,7 +424,7 @@ fn check(corpus: &Corpus, ids: &[String], json: bool) -> Result<()> {
         }
         report.summaries.push(validation);
     }
-    print_check_report(&report, json)?;
+    print_check_report(&report, json, quiet)?;
     if report.invalid > 0 {
         bail!(
             "{} summary or summaries have invalid evidence",
@@ -353,21 +434,27 @@ fn check(corpus: &Corpus, ids: &[String], json: bool) -> Result<()> {
     Ok(())
 }
 
-fn audit(corpus: &Corpus, strict: bool, json: bool) -> Result<()> {
+fn audit(corpus: &Corpus, strict: bool, ids: &[String], json: bool, quiet: bool) -> Result<()> {
     let tools = PdfTools::new(corpus.cache_root().to_path_buf());
     let mut report = AuditReport {
         valid: 0,
         missing: 0,
         invalid: 0,
-        invalid_summaries: Vec::new(),
+        summaries: Vec::new(),
     };
-    for id in summary_ids(corpus)? {
+    let ids = if ids.is_empty() {
+        summary_ids(corpus)?
+    } else {
+        ids.to_vec()
+    };
+    for id in ids {
         let summary = match read_summary(corpus, &id) {
             Ok(summary) => summary,
             Err(error) => {
                 report.invalid += 1;
-                report.invalid_summaries.push(ValidationReport {
+                report.summaries.push(AuditSummary {
                     id,
+                    status: AuditStatus::Invalid,
                     issues: vec![crate::evidence::EvidenceIssue {
                         code: "summary_parse_failed".to_owned(),
                         message: error.to_string(),
@@ -378,26 +465,56 @@ fn audit(corpus: &Corpus, strict: bool, json: bool) -> Result<()> {
                 continue;
             }
         };
+        if summary.id != id {
+            report.invalid += 1;
+            report.summaries.push(AuditSummary {
+                id,
+                status: AuditStatus::Invalid,
+                issues: vec![crate::evidence::EvidenceIssue {
+                    code: "id_mismatch".to_owned(),
+                    message: format!("summary ID {:?} does not match filename", summary.id),
+                    claim: None,
+                    locator: None,
+                }],
+            });
+            continue;
+        }
         if summary.evidence.is_none() {
             report.missing += 1;
+            report.summaries.push(AuditSummary {
+                id,
+                status: AuditStatus::Missing,
+                issues: Vec::new(),
+            });
             continue;
         }
         let validation = validate_document(corpus, &summary, &tools);
         if validation.is_valid() {
             report.valid += 1;
+            report.summaries.push(AuditSummary {
+                id,
+                status: AuditStatus::Valid,
+                issues: Vec::new(),
+            });
         } else {
             report.invalid += 1;
-            report.invalid_summaries.push(validation);
+            report.summaries.push(AuditSummary {
+                id,
+                status: AuditStatus::Invalid,
+                issues: validation.issues,
+            });
         }
     }
     if json {
         print_json(&report)?;
-    } else {
+    } else if !quiet {
         println!(
             "valid: {}\nmissing: {}\ninvalid: {}",
             report.valid, report.missing, report.invalid
         );
-        print_issues(&report.invalid_summaries);
+    }
+    if !json {
+        print_audit_issues(&report.summaries);
     }
     if report.invalid > 0 || (strict && report.missing > 0) {
         bail!("evidence audit failed");
@@ -444,14 +561,16 @@ fn relative(corpus: &Corpus, path: &Path) -> String {
         .replace('\\', "/")
 }
 
-fn print_check_report(report: &CheckReport, json: bool) -> Result<()> {
+fn print_check_report(report: &CheckReport, json: bool, quiet: bool) -> Result<()> {
     if json {
         return print_json(report);
     }
-    println!(
-        "valid: {}\nskipped: {}\ninvalid: {}",
-        report.valid, report.skipped, report.invalid
-    );
+    if !quiet {
+        println!(
+            "valid: {}\nskipped: {}\ninvalid: {}",
+            report.valid, report.skipped, report.invalid
+        );
+    }
     print_issues(&report.summaries);
     Ok(())
 }
@@ -464,10 +583,38 @@ fn print_issues(reports: &[ValidationReport]) {
     }
 }
 
+fn print_audit_issues(summaries: &[AuditSummary]) {
+    for summary in summaries {
+        for issue in &summary.issues {
+            eprintln!("{}: {}: {}", summary.id, issue.code, issue.message);
+        }
+    }
+}
+
+fn error_report(
+    id: String,
+    code: impl Into<String>,
+    message: impl Into<String>,
+) -> ValidationReport {
+    ValidationReport {
+        id,
+        issues: vec![crate::evidence::EvidenceIssue {
+            code: code.into(),
+            message: message.into(),
+            claim: None,
+            locator: None,
+        }],
+    }
+}
+
 fn print_locate_yaml(result: &LocateResult) -> Result<()> {
     let markdown = serde_json::to_string(&result.markdown)?;
     let pdf = serde_json::to_string(&result.pdf)?;
     let claim = serde_json::to_string_pretty(&result.claim)?;
+    if let Some(pdf_match) = &result.pdf_match {
+        let diagnostic = serde_json::to_string(pdf_match)?;
+        println!("# PDF match diagnostic: {diagnostic}");
+    }
     println!("markdown: {markdown}\npdf: {pdf}\nclaim: {claim}");
     Ok(())
 }

@@ -6,8 +6,10 @@ use std::{
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
-use super::ExtractedPage;
+use super::{ExtractedPage, PdfBbox, TextSpan};
 use crate::normalize::normalize;
+
+pub const PROFILE_NAME: &str = "mutool-native";
 
 /// `MuPDF` command adapter.
 #[derive(Debug, Clone)]
@@ -100,16 +102,27 @@ pub fn parse_stext_json(source: &str) -> Result<Vec<ExtractedPage>> {
         .into_iter()
         .enumerate()
         .map(|(index, page)| {
-            let text = page
+            let lines = page
                 .blocks
                 .into_iter()
                 .flat_map(|block| block.lines)
-                .map(|line| line.text)
+                .collect::<Vec<_>>();
+            let text = lines
+                .iter()
+                .map(|line| line.text.as_str())
                 .collect::<Vec<_>>()
                 .join(" ");
             ExtractedPage {
                 page: index + 1,
                 text: normalize(&text),
+                spans: lines
+                    .into_iter()
+                    .map(|line| TextSpan {
+                        text: line.text,
+                        bbox: line.bbox.map(Into::into),
+                    })
+                    .collect(),
+                mean_confidence: None,
             }
         })
         .collect())
@@ -148,5 +161,26 @@ struct StextBlock {
 
 #[derive(Debug, Deserialize)]
 struct StextLine {
+    #[serde(default)]
+    bbox: Option<StextBbox>,
     text: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct StextBbox {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+}
+
+impl From<StextBbox> for PdfBbox {
+    fn from(value: StextBbox) -> Self {
+        Self {
+            x: value.x,
+            y: value.y,
+            width: value.w,
+            height: value.h,
+        }
+    }
 }

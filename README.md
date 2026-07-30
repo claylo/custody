@@ -74,6 +74,7 @@ receipts doctor
 receipts locate ID --claim 0 --exact "literal present in both sources" --page 3
 receipts check ID
 receipts audit
+receipts audit ID...
 ```
 
 `locate` chooses a pulldown-cmark semantic unit and validates the exact literal
@@ -81,6 +82,15 @@ against MuPDF native structured text. If native text has no match and `--page`
 was supplied, it renders that physical page at 300 DPI, detects orientation, and
 tries Tesseract OCR. Native ambiguity is an error and never triggers OCR
 fallback.
+
+`locate --json` also reports the bounding box of the matched native-text lines or
+OCR words, and mean OCR confidence when the backend provides them. The default
+YAML-ready output keeps those diagnostics in a comment so they are not persisted
+in the strict evidence contract.
+
+Pass IDs to `audit` to inspect only part of a corpus. `--quiet` suppresses
+successful human-readable totals while retaining errors; explicit JSON output is
+never suppressed.
 
 Only `receipts` should produce normalized literals, SHA-256 values, coordinates,
 pages, and backend names. Normalization replaces each Unicode whitespace run
@@ -130,8 +140,9 @@ evidence without failing; `audit --strict` makes it fatal.
 
 ## Cache
 
-Tesseract TSV is reusable runtime data, content-addressed by PDF digest,
-backend, profile version, toolchain fingerprint, and physical page:
+Tesseract TSV is reusable runtime data, content-addressed by the PDF digest,
+backend, fixed OCR settings and command templates, MuPDF and Tesseract versions,
+and physical page. The manifest also records the applied render rotation.
 
 ```text
 <cache-root>/PDF_SHA256/tesseract-eng-300dpi-v1/TOOLCHAIN_SHA256/page-NNNN/

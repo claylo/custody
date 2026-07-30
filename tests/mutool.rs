@@ -1,4 +1,4 @@
-use receipts::pdf::mutool::parse_stext_json;
+use receipts::pdf::{matching_bbox, mutool::parse_stext_json};
 
 #[test]
 fn parses_structured_text_in_block_line_order() {
@@ -11,6 +11,15 @@ fn parses_structured_text_in_block_line_order() {
         pages[0]
             .text
             .contains("transport in this regime is the absence of measurable turbulent mixing")
+    );
+    let bbox = matching_bbox(
+        &pages[0],
+        "transport in this regime is the absence of measurable turbulent mixing",
+    )
+    .unwrap();
+    assert_eq!(
+        (bbox.x, bbox.y, bbox.width, bbox.height),
+        (10.0, 20.0, 300.0, 24.0)
     );
 }
 

@@ -13,6 +13,16 @@ fn receipts(corpus: &Path, args: &[&str]) -> Output {
         .expect("receipts executes")
 }
 
+fn receipts_with_path(corpus: &Path, args: &[&str], path: &Path) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_receipts"))
+        .arg("-C")
+        .arg(corpus)
+        .args(args)
+        .env("PATH", path)
+        .output()
+        .expect("receipts executes")
+}
+
 #[test]
 fn targeted_check_fails_when_evidence_is_missing() {
     let corpus = fixture_corpus();
@@ -41,6 +51,38 @@ fn strict_audit_fails_on_missing_evidence() {
 }
 
 #[test]
+fn targeted_audit_accepts_summary_ids() {
+    let corpus = fixture_corpus();
+    let output = receipts(corpus.path(), &["audit", "missing-evidence"]);
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stdout(&output).contains("missing: 1"));
+}
+
+#[test]
+fn audit_rejects_a_filename_id_mismatch() {
+    let corpus = fixture_corpus();
+    fs::write(
+        corpus.path().join("summaries/missing-evidence.yaml"),
+        "id: different-id\nclaims:\n  - A claim without evidence.\n",
+    )
+    .unwrap();
+    let output = receipts(corpus.path(), &["audit"]);
+
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("id_mismatch"));
+}
+
+#[test]
+fn quiet_audit_suppresses_non_error_output() {
+    let corpus = fixture_corpus();
+    let output = receipts(corpus.path(), &["--quiet", "audit"]);
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stdout(&output).is_empty());
+}
+
+#[test]
 fn doctor_reports_corpus_and_executables() {
     let corpus = fixture_corpus();
     let output = receipts(corpus.path(), &["doctor"]);
@@ -50,6 +92,19 @@ fn doctor_reports_corpus_and_executables() {
     assert!(output.contains("corpus: ok"));
     assert!(output.contains("mutool: ok"));
     assert!(output.contains("tesseract: ok"));
+    assert!(output.contains("native profile: ok (mutool-native)"));
+    assert!(output.contains("OCR profile: ok (tesseract-eng-300dpi-v1)"));
+}
+
+#[test]
+fn doctor_fails_when_runtime_tools_are_unavailable() {
+    let corpus = fixture_corpus();
+    let empty_path = tempfile::tempdir().unwrap();
+    let output = receipts_with_path(corpus.path(), &["doctor"], empty_path.path());
+
+    assert!(!output.status.success());
+    assert!(stdout(&output).contains("mutool: error"));
+    assert!(stdout(&output).contains("tesseract: error"));
 }
 
 fn fixture_corpus() -> tempfile::TempDir {

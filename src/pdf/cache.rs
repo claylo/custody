@@ -4,7 +4,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::hash::sha256_bytes;
@@ -19,6 +19,9 @@ pub struct OcrProfile {
     pub page_segmentation_mode: u8,
     pub mutool_version: String,
     pub tesseract_version: String,
+    pub render_command: String,
+    pub orientation_command: String,
+    pub recognition_command: String,
 }
 
 /// Manifest that makes a cached TSV self-validating.
@@ -29,17 +32,53 @@ pub struct CacheManifest {
     pub page: usize,
     pub profile: OcrProfile,
     pub toolchain_sha256: String,
+    pub render_rotation_degrees: i16,
 }
 
 impl CacheManifest {
     pub fn new(pdf_sha256: String, page: usize, profile: OcrProfile) -> Result<Self> {
+        if pdf_sha256.len() != 64
+            || !pdf_sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            bail!("PDF SHA-256 must be 64 lowercase hexadecimal characters");
+        }
+        if page == 0 {
+            bail!("PDF pages are one-based");
+        }
+        if profile.name.is_empty()
+            || !profile
+                .name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        {
+            bail!("OCR profile name is not a safe cache path component");
+        }
         let toolchain_sha256 = cache_key(&profile)?;
         Ok(Self {
             pdf_sha256,
             page,
             profile,
             toolchain_sha256,
+            render_rotation_degrees: 0,
         })
+    }
+
+    pub fn with_render_rotation(mut self, rotation: i16) -> Result<Self> {
+        if !matches!(rotation, 0 | 90 | 180 | 270) {
+            bail!("render rotation must be 0, 90, 180, or 270 degrees");
+        }
+        self.render_rotation_degrees = rotation;
+        Ok(self)
+    }
+
+    fn matches_request(&self, expected: &Self) -> bool {
+        matches!(self.render_rotation_degrees, 0 | 90 | 180 | 270)
+            && self.pdf_sha256 == expected.pdf_sha256
+            && self.page == expected.page
+            && self.profile == expected.profile
+            && self.toolchain_sha256 == expected.toolchain_sha256
     }
 }
 
@@ -85,7 +124,7 @@ impl OcrCache {
                 .with_context(|| format!("failed to read {}", manifest_path.display()))?,
         )
         .with_context(|| format!("failed to parse {}", manifest_path.display()))?;
-        if stored != *expected {
+        if !stored.matches_request(expected) {
             return Ok(None);
         }
         fs::read_to_string(&tsv_path)

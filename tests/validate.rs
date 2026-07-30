@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs, path::Path};
+use std::{collections::HashMap, fs, os::unix::fs::symlink, path::Path};
 
 use anyhow::{Result, bail};
 use receipts::{
@@ -28,6 +28,8 @@ impl PdfTextProvider for FakePdf {
                 .get(&(PdfBackend::MutoolNative, page))
                 .cloned()
                 .unwrap_or_default(),
+            spans: Vec::new(),
+            mean_confidence: None,
         }])
     }
 
@@ -38,6 +40,8 @@ impl PdfTextProvider for FakePdf {
         Ok(ExtractedPage {
             page,
             text: text.clone(),
+            spans: Vec::new(),
+            mean_confidence: None,
         })
     }
 }
@@ -116,6 +120,84 @@ fn source_hash_mismatch_is_reported() {
             .issues
             .iter()
             .any(|issue| issue.code == "pdf_hash_mismatch")
+    );
+}
+
+#[test]
+fn actual_pdf_hash_not_recorded_hash_keys_ocr() {
+    struct HashCheckingPdf {
+        expected: String,
+    }
+
+    impl PdfTextProvider for HashCheckingPdf {
+        fn native_pages(&self, _pdf: &Path, _page: Option<usize>) -> Result<Vec<ExtractedPage>> {
+            bail!("native extraction was not requested")
+        }
+
+        fn ocr_page(&self, _pdf: &Path, pdf_sha256: &str, page: usize) -> Result<ExtractedPage> {
+            if pdf_sha256 != self.expected {
+                bail!("unsafe PDF hash reached provider: {pdf_sha256}");
+            }
+            Ok(ExtractedPage {
+                page,
+                text: "Supported once.".to_owned(),
+                spans: Vec::new(),
+                mean_confidence: None,
+            })
+        }
+    }
+
+    let fixture = Fixture::new("Supported once.");
+    let mut summary = fixture.summary("Supported once", PdfBackend::TesseractOcr);
+    summary.evidence.as_mut().unwrap().pdf.sha256 = "../recorded-hash".to_owned();
+    let actual = sha256_file(&fixture.corpus.root().join("pdfs/smith-2019.pdf")).unwrap();
+    let report = validate_document(
+        &fixture.corpus,
+        &summary,
+        &HashCheckingPdf { expected: actual },
+    );
+
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|issue| issue.code == "invalid_sha256")
+    );
+    assert!(
+        !report
+            .issues
+            .iter()
+            .any(|issue| issue.code == "pdf_extraction_failed"),
+        "{:?}",
+        report.issues
+    );
+}
+
+#[test]
+fn rejects_canonical_source_symlinks_that_escape_the_corpus() {
+    let fixture = Fixture::new("Supported once.");
+    let outside = tempfile::NamedTempFile::new().unwrap();
+    fs::write(outside.path(), "Supported once.").unwrap();
+    let markdown_path = fixture.corpus.root().join("md/smith-2019/smith-2019.md");
+    fs::remove_file(&markdown_path).unwrap();
+    symlink(outside.path(), &markdown_path).unwrap();
+    let mut summary = fixture.summary("Supported once", PdfBackend::MutoolNative);
+    summary.evidence.as_mut().unwrap().markdown.sha256 = sha256_file(outside.path()).unwrap();
+    let report = validate_document(
+        &fixture.corpus,
+        &summary,
+        &FakePdf {
+            pages: HashMap::from([((PdfBackend::MutoolNative, 1), "Supported once.".to_owned())]),
+        },
+    );
+
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|issue| issue.code == "markdown_source_outside_repo"),
+        "{:?}",
+        report.issues
     );
 }
 
