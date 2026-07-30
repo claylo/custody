@@ -1,0 +1,22 @@
+{
+  "file": "prose.pdf",
+  "pages": [
+    {
+      "blocks": [
+        {
+          "type": "text",
+          "lines": [
+            {
+              "bbox": {"x": 10, "y": 20, "w": 300, "h": 10},
+              "text": "What distinguishes laminar transport in this regime is the absence"
+            },
+            {
+              "bbox": {"x": 10, "y": 34, "w": 180, "h": 10},
+              "text": "of measurable turbulent mixing."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

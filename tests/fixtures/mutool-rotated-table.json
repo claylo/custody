@@ -1,0 +1,19 @@
+{
+  "file": "rotated.pdf",
+  "pages": [
+    {
+      "blocks": [
+        {
+          "type": "text",
+          "lines": [
+            {"text": "42"},
+            {"text": "."},
+            {"text": "8"},
+            {"text": "% within tolera"},
+            {"text": "nce"}
+          ]
+        }
+      ]
+    }
+  ]
+}

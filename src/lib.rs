@@ -6,3 +6,4 @@ pub mod evidence;
 pub mod hash;
 pub mod markdown;
 pub mod normalize;
+pub mod pdf;
