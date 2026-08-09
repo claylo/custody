@@ -294,8 +294,14 @@ fn locate(corpus: &Corpus, args: &LocateArgs, json: bool) -> Result<()> {
     }
     let pdf_sha256 = sha256_file(&pdf_path)?;
     let tools = PdfTools::new(corpus.cache_root().to_path_buf(), corpus.ocr_config());
-    let (page, backend, bbox, mean_confidence) =
-        locate_pdf(&tools, &pdf_path, &pdf_sha256, args.page, &exact)?;
+    let (page, backend, bbox, mean_confidence) = locate_pdf(
+        &tools,
+        &pdf_path,
+        &pdf_sha256,
+        args.page,
+        &exact,
+        corpus.ocr_config().enabled,
+    )?;
     let result = LocateResult {
         markdown: SourceRecord {
             source: relative(corpus, &markdown_path),
@@ -340,6 +346,7 @@ fn locate_pdf(
     pdf_sha256: &str,
     page: Option<usize>,
     exact: &str,
+    ocr_enabled: bool,
 ) -> Result<(usize, PdfBackend, Option<PdfBbox>, Option<f64>)> {
     let native = tools.native_pages(pdf, page)?;
     let native_matches: Vec<_> = native
@@ -371,6 +378,9 @@ fn locate_pdf(
     let Some(page) = page else {
         bail!("exact text was not found natively; pass --page to permit OCR fallback");
     };
+    if !ocr_enabled {
+        bail!("exact text was not found natively and OCR is disabled in configuration");
+    }
     let ocr = tools.ocr_page(pdf, pdf_sha256, page)?;
     match exact_count(&ocr.text, exact) {
         1 => Ok((

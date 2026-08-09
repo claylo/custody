@@ -141,6 +141,19 @@ pub fn validate_document(
                 )),
             }
 
+            if locator.pdf.backend == PdfBackend::TesseractOcr && !corpus.ocr_config().enabled {
+                issues.push(issue(
+                    "ocr_disabled",
+                    format!(
+                        "locator uses {} but OCR is disabled in configuration",
+                        locator.pdf.backend.as_str()
+                    ),
+                    Some(entry.claim),
+                    Some(locator_index),
+                ));
+                continue;
+            }
+
             let key = (locator.pdf.backend, locator.pdf.page);
             let extracted = pdf_pages.entry(key).or_insert_with(|| {
                 extract_pdf_page(

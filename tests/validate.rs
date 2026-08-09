@@ -174,6 +174,31 @@ fn actual_pdf_hash_not_recorded_hash_keys_ocr() {
 }
 
 #[test]
+fn ocr_disabled_rejects_an_ocr_backend_locator() {
+    let fixture = Fixture::with_config(
+        "Supported once.",
+        "cache:\n  root: \".cache/pdf-text\"\npdf:\n  ocr:\n    enabled: false\n",
+    );
+    let report = validate_document(
+        &fixture.corpus,
+        &fixture.summary("Supported once", PdfBackend::TesseractOcr),
+        &FakePdf {
+            pages: HashMap::from([((PdfBackend::TesseractOcr, 1), "Supported once.".to_owned())]),
+        },
+    );
+
+    assert!(!report.is_valid());
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|issue| issue.code == "ocr_disabled"),
+        "{:?}",
+        report.issues
+    );
+}
+
+#[test]
 fn rejects_canonical_source_symlinks_that_escape_the_corpus() {
     let fixture = Fixture::new("Supported once.");
     let outside = tempfile::NamedTempFile::new().unwrap();
@@ -208,17 +233,17 @@ struct Fixture {
 }
 
 impl Fixture {
+    // Every config pins the cache inside the temp dir so the suite stays hermetic.
     fn new(markdown: &str) -> Self {
+        Self::with_config(markdown, "cache:\n  root: \".cache/pdf-text\"\n")
+    }
+
+    fn with_config(markdown: &str, config: &str) -> Self {
         let temp = tempfile::tempdir().unwrap();
         fs::create_dir_all(temp.path().join("summaries")).unwrap();
         fs::create_dir_all(temp.path().join("md/smith-2019")).unwrap();
         fs::create_dir_all(temp.path().join("pdfs")).unwrap();
-        // Pin the cache inside the temp dir so the suite stays hermetic.
-        fs::write(
-            temp.path().join("receipts.yaml"),
-            "cache:\n  root: \".cache/pdf-text\"\n",
-        )
-        .unwrap();
+        fs::write(temp.path().join("receipts.yaml"), config).unwrap();
         fs::write(temp.path().join("md/smith-2019/smith-2019.md"), markdown).unwrap();
         fs::write(temp.path().join("pdfs/smith-2019.pdf"), b"fixture PDF").unwrap();
         let corpus = Corpus::discover_from(temp.path(), None).unwrap();

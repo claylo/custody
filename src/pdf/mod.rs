@@ -92,6 +92,7 @@ pub struct PdfTools {
     pub mutool: mutool::Mutool,
     pub tesseract: tesseract::Tesseract,
     pub cache: cache::OcrCache,
+    ocr_enabled: bool,
 }
 
 impl PdfTools {
@@ -102,6 +103,7 @@ impl PdfTools {
             mutool: mutool::Mutool::default(),
             tesseract: tesseract::Tesseract::new(ocr.lang.clone(), dpi, ocr.page_segmentation_mode),
             cache: cache::OcrCache::new(cache_root),
+            ocr_enabled: ocr.enabled,
         }
     }
 }
@@ -112,6 +114,9 @@ impl PdfTextProvider for PdfTools {
     }
 
     fn ocr_page(&self, pdf: &Path, pdf_sha256: &str, page: usize) -> Result<ExtractedPage> {
+        if !self.ocr_enabled {
+            anyhow::bail!("OCR is disabled in configuration");
+        }
         tesseract::ocr_page(
             &self.mutool,
             &self.tesseract,
