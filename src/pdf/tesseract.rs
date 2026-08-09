@@ -14,12 +14,21 @@ use super::{
 };
 use crate::normalize::normalize;
 
-pub const PROFILE_NAME: &str = "tesseract-eng-300dpi-v1";
-const OCR_DPI: u16 = 300;
-const OCR_PSM: u8 = 3;
-const RENDER_COMMAND: &str = "mutool draw -q -r 300 [-R ROTATION] -o OUTPUT PDF PAGE";
 const ORIENTATION_COMMAND: &str = "tesseract IMAGE stdout -l osd --psm 0";
-const RECOGNITION_COMMAND: &str = "tesseract IMAGE stdout -l eng --psm 3 tsv";
+
+/// Cache profile name for a language and render resolution.
+#[must_use]
+pub fn profile_name(lang: &str, dpi: u16) -> String {
+    format!("tesseract-{lang}-{dpi}dpi-v1")
+}
+
+fn render_command(dpi: u16) -> String {
+    format!("mutool draw -q -r {dpi} [-R ROTATION] -o OUTPUT PDF PAGE")
+}
+
+fn recognition_command(lang: &str, psm: u8) -> String {
+    format!("tesseract IMAGE stdout -l {lang} --psm {psm} tsv")
+}
 
 /// Parsed word text and diagnostic confidence from a Tesseract TSV.
 #[derive(Debug, Clone, PartialEq)]
@@ -45,6 +54,9 @@ impl ParsedTsv {
 #[derive(Debug, Clone)]
 pub struct Tesseract {
     executable: String,
+    lang: String,
+    dpi: u16,
+    psm: u8,
 }
 
 /// `MuPDF` behavior required by the page-level OCR pipeline.
@@ -65,17 +77,33 @@ pub trait OcrEngine {
     fn version(&self) -> Result<String>;
     fn rotation(&self, image: &Path) -> Result<i16>;
     fn tsv(&self, image: &Path) -> Result<String>;
+    fn lang(&self) -> &str;
+    fn dpi(&self) -> u16;
+    fn psm(&self) -> u8;
 }
 
 impl Default for Tesseract {
     fn default() -> Self {
         Self {
             executable: "tesseract".to_owned(),
+            lang: "eng".to_owned(),
+            dpi: 300,
+            psm: 3,
         }
     }
 }
 
 impl Tesseract {
+    #[must_use]
+    pub fn new(lang: String, dpi: u16, psm: u8) -> Self {
+        Self {
+            executable: "tesseract".to_owned(),
+            lang,
+            dpi,
+            psm,
+        }
+    }
+
     pub fn version(&self) -> Result<String> {
         let output = run(
             Command::new(&self.executable).arg("--version"),
@@ -106,9 +134,14 @@ impl Tesseract {
 
     fn tsv(&self, image: &Path) -> Result<String> {
         let output = run(
-            Command::new(&self.executable)
-                .arg(image)
-                .args(["stdout", "-l", "eng", "--psm", "3", "tsv"]),
+            Command::new(&self.executable).arg(image).args([
+                "stdout",
+                "-l",
+                &self.lang,
+                "--psm",
+                &self.psm.to_string(),
+                "tsv",
+            ]),
             "Tesseract OCR",
         )?;
         String::from_utf8(output.stdout).context("Tesseract TSV was not UTF-8")
@@ -144,9 +177,21 @@ impl OcrEngine for Tesseract {
     fn tsv(&self, image: &Path) -> Result<String> {
         Tesseract::tsv(self, image)
     }
+
+    fn lang(&self) -> &str {
+        &self.lang
+    }
+
+    fn dpi(&self) -> u16 {
+        self.dpi
+    }
+
+    fn psm(&self) -> u8 {
+        self.psm
+    }
 }
 
-/// Extract a page with the fixed OCR profile, reusing a matching cache entry.
+/// Extract a page with the engine's configured OCR profile, reusing a matching cache entry.
 pub fn ocr_page(
     mutool: &impl PageRenderer,
     tesseract: &impl OcrEngine,
@@ -158,16 +203,19 @@ pub fn ocr_page(
     if page == 0 {
         bail!("PDF pages are one-based");
     }
+    let lang = tesseract.lang();
+    let dpi = tesseract.dpi();
+    let psm = tesseract.psm();
     let profile = OcrProfile {
-        name: PROFILE_NAME.to_owned(),
-        language: "eng".to_owned(),
-        dpi: OCR_DPI,
-        page_segmentation_mode: OCR_PSM,
+        name: profile_name(lang, dpi),
+        language: lang.to_owned(),
+        dpi,
+        page_segmentation_mode: psm,
         mutool_version: mutool.version()?,
         tesseract_version: tesseract.version()?,
-        render_command: RENDER_COMMAND.to_owned(),
+        render_command: render_command(dpi),
         orientation_command: ORIENTATION_COMMAND.to_owned(),
-        recognition_command: RECOGNITION_COMMAND.to_owned(),
+        recognition_command: recognition_command(lang, psm),
     };
     let manifest = CacheManifest::new(pdf_sha256.to_owned(), page, profile)?;
     if let Some(tsv) = cache.load(&manifest)? {
@@ -184,12 +232,12 @@ pub fn ocr_page(
     let initial = directory.join(format!(".page-{}-{nonce}.png", std::process::id()));
     let rotated = directory.join(format!(".page-{}-{nonce}-rotated.png", std::process::id()));
     let result = (|| {
-        mutool.render_page(pdf, page, OCR_DPI, 0, &initial)?;
+        mutool.render_page(pdf, page, dpi, 0, &initial)?;
         let rotation = tesseract.rotation(&initial)?;
         let ocr_image = if rotation == 0 {
             &initial
         } else {
-            mutool.render_page(pdf, page, OCR_DPI, rotation, &rotated)?;
+            mutool.render_page(pdf, page, dpi, rotation, &rotated)?;
             &rotated
         };
         let tsv = tesseract.tsv(ocr_image)?;

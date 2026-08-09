@@ -193,7 +193,7 @@ fn doctor(corpus: &Corpus, json: bool, quiet: bool) -> Result<()> {
         (
             "OCR profile",
             true,
-            crate::pdf::tesseract::PROFILE_NAME.to_owned(),
+            crate::pdf::tesseract::profile_name("eng", 300),
         ),
     ];
     fs::create_dir_all(tools.cache.root()).with_context(|| {
