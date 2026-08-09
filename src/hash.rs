@@ -7,10 +7,19 @@ use std::{
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 
+fn hex(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        use std::fmt::Write;
+        let _ = write!(s, "{b:02x}");
+    }
+    s
+}
+
 /// Return the lowercase SHA-256 digest of `bytes`.
 #[must_use]
 pub fn sha256_bytes(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    hex(Sha256::digest(bytes).as_slice())
 }
 
 /// Return the lowercase SHA-256 digest of the raw bytes at `path`.
@@ -31,5 +40,5 @@ pub fn sha256_file(path: &Path) -> Result<String> {
         hasher.update(&buffer[..read]);
     }
 
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hex(hasher.finalize().as_slice()))
 }
