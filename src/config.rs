@@ -67,6 +67,8 @@ pub struct OcrConfig {
     pub dpi: u32,
     /// Tesseract language code.
     pub lang: String,
+    /// Tesseract page segmentation mode (`--psm`), 0-13.
+    pub page_segmentation_mode: u8,
 }
 
 impl Default for OcrConfig {
@@ -75,6 +77,7 @@ impl Default for OcrConfig {
             enabled: true,
             dpi: 300,
             lang: "eng".to_owned(),
+            page_segmentation_mode: 3,
         }
     }
 }
@@ -142,6 +145,9 @@ fn validate(config: &Config) -> Result<()> {
     }
     if config.pdf.ocr.lang.is_empty() {
         bail!("pdf.ocr.lang must not be empty");
+    }
+    if config.pdf.ocr.page_segmentation_mode > 13 {
+        bail!("pdf.ocr.page_segmentation_mode must be 0–13");
     }
     config.terms.validate()?;
     Ok(())

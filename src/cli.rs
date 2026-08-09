@@ -167,7 +167,9 @@ pub fn run() -> Result<()> {
 }
 
 fn doctor(corpus: &Corpus, json: bool, quiet: bool) -> Result<()> {
-    let tools = PdfTools::new(corpus.cache_root().to_path_buf());
+    let ocr = corpus.ocr_config();
+    let tools = PdfTools::new(corpus.cache_root().to_path_buf(), ocr);
+    let ocr_dpi = u16::try_from(ocr.dpi).unwrap_or(u16::MAX);
     let mut checks = vec![
         ("corpus", true, corpus.root().display().to_string()),
         (
@@ -193,7 +195,7 @@ fn doctor(corpus: &Corpus, json: bool, quiet: bool) -> Result<()> {
         (
             "OCR profile",
             true,
-            crate::pdf::tesseract::PROFILE_NAME.to_owned(),
+            crate::pdf::tesseract::profile_name(&ocr.lang, ocr_dpi),
         ),
     ];
     fs::create_dir_all(tools.cache.root()).with_context(|| {
@@ -291,9 +293,15 @@ fn locate(corpus: &Corpus, args: &LocateArgs, json: bool) -> Result<()> {
         bail!("canonical PDF is missing: {}", pdf_path.display());
     }
     let pdf_sha256 = sha256_file(&pdf_path)?;
-    let tools = PdfTools::new(corpus.cache_root().to_path_buf());
-    let (page, backend, bbox, mean_confidence) =
-        locate_pdf(&tools, &pdf_path, &pdf_sha256, args.page, &exact)?;
+    let tools = PdfTools::new(corpus.cache_root().to_path_buf(), corpus.ocr_config());
+    let (page, backend, bbox, mean_confidence) = locate_pdf(
+        &tools,
+        &pdf_path,
+        &pdf_sha256,
+        args.page,
+        &exact,
+        corpus.ocr_config().enabled,
+    )?;
     let result = LocateResult {
         markdown: SourceRecord {
             source: relative(corpus, &markdown_path),
@@ -338,6 +346,7 @@ fn locate_pdf(
     pdf_sha256: &str,
     page: Option<usize>,
     exact: &str,
+    ocr_enabled: bool,
 ) -> Result<(usize, PdfBackend, Option<PdfBbox>, Option<f64>)> {
     let native = tools.native_pages(pdf, page)?;
     let native_matches: Vec<_> = native
@@ -369,6 +378,9 @@ fn locate_pdf(
     let Some(page) = page else {
         bail!("exact text was not found natively; pass --page to permit OCR fallback");
     };
+    if !ocr_enabled {
+        bail!("exact text was not found natively and OCR is disabled in configuration");
+    }
     let ocr = tools.ocr_page(pdf, pdf_sha256, page)?;
     match exact_count(&ocr.text, exact) {
         1 => Ok((
@@ -389,7 +401,7 @@ fn check(corpus: &Corpus, ids: &[String], json: bool, quiet: bool) -> Result<()>
     } else {
         summary_ids(corpus)?
     };
-    let tools = PdfTools::new(corpus.cache_root().to_path_buf());
+    let tools = PdfTools::new(corpus.cache_root().to_path_buf(), corpus.ocr_config());
     let mut report = CheckReport {
         valid: 0,
         skipped: 0,
@@ -439,7 +451,7 @@ fn check(corpus: &Corpus, ids: &[String], json: bool, quiet: bool) -> Result<()>
 }
 
 fn audit(corpus: &Corpus, strict: bool, ids: &[String], json: bool, quiet: bool) -> Result<()> {
-    let tools = PdfTools::new(corpus.cache_root().to_path_buf());
+    let tools = PdfTools::new(corpus.cache_root().to_path_buf(), corpus.ocr_config());
     let mut report = AuditReport {
         valid: 0,
         missing: 0,

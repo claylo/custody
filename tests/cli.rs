@@ -99,6 +99,24 @@ fn doctor_reports_corpus_and_executables() {
 }
 
 #[test]
+fn doctor_reports_configured_ocr_profile() {
+    let corpus = fixture_corpus();
+    fs::write(
+        corpus.path().join("receipts.yaml"),
+        "cache:\n  root: \".cache/pdf-text\"\npdf:\n  ocr:\n    dpi: 600\n    lang: deu\n",
+    )
+    .unwrap();
+    let output = receipts(corpus.path(), &["doctor"]);
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    let output = stdout(&output);
+    assert!(
+        output.contains("OCR profile: ok (tesseract-deu-600dpi-v1)"),
+        "doctor should show derived profile: {output}"
+    );
+}
+
+#[test]
 fn doctor_fails_when_runtime_tools_are_unavailable() {
     let corpus = fixture_corpus();
     let empty_path = tempfile::tempdir().unwrap();
@@ -107,6 +125,36 @@ fn doctor_fails_when_runtime_tools_are_unavailable() {
     assert!(!output.status.success());
     assert!(stdout(&output).contains("mutool: error"));
     assert!(stdout(&output).contains("tesseract: error"));
+}
+
+#[test]
+fn locate_refuses_ocr_fallback_when_disabled() {
+    let corpus = fixture_corpus();
+    fs::write(
+        corpus.path().join("receipts.yaml"),
+        "cache:\n  root: \".cache/pdf-text\"\npdf:\n  ocr:\n    enabled: false\n",
+    )
+    .unwrap();
+    let output = receipts(
+        corpus.path(),
+        &[
+            "locate",
+            "missing-evidence",
+            "--claim",
+            "0",
+            "--exact",
+            "A source.",
+            "--page",
+            "1",
+        ],
+    );
+
+    assert!(!output.status.success(), "{}", stdout(&output));
+    let stderr = stderr(&output);
+    assert!(
+        stderr.contains("OCR is disabled"),
+        "should refuse OCR fallback: {stderr}"
+    );
 }
 
 fn fixture_corpus() -> tempfile::TempDir {
@@ -132,9 +180,17 @@ fn fixture_corpus() -> tempfile::TempDir {
         "A source.",
     )
     .unwrap();
-    fs::write(temp.path().join("pdfs/missing-evidence.pdf"), b"fixture").unwrap();
+    fs::write(temp.path().join("pdfs/missing-evidence.pdf"), MINIMAL_PDF).unwrap();
     temp
 }
+
+/// One empty page, no xref. `MuPDF` repairs it and reports zero native text,
+/// which is what drives `locate` down the OCR fallback path.
+const MINIMAL_PDF: &str = "%PDF-1.4\n\
+    1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n\
+    2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n\
+    3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\n\
+    trailer<</Root 1 0 R>>\n";
 
 fn stdout(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()

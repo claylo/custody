@@ -4,12 +4,12 @@ use anyhow::Result;
 use receipts::pdf::{
     cache::{CacheManifest, OcrCache, OcrProfile, cache_key},
     matching_bbox,
-    tesseract::{OcrEngine, PageRenderer, ocr_page, parse_orientation, parse_tsv},
+    tesseract::{OcrEngine, PageRenderer, ocr_page, parse_orientation, parse_tsv, profile_name},
 };
 
 fn profile(mutool: &str, tesseract: &str) -> OcrProfile {
     OcrProfile {
-        name: "tesseract-eng-300dpi-v1".to_owned(),
+        name: profile_name("eng", 300),
         language: "eng".to_owned(),
         dpi: 300,
         page_segmentation_mode: 3,
@@ -35,6 +35,12 @@ fn reconstructs_words_in_tsv_order() {
         (bbox.x, bbox.y, bbox.width, bbox.height),
         (84.0, 110.0, 274.0, 32.0)
     );
+}
+
+#[test]
+fn profile_name_derives_from_settings() {
+    assert_eq!(profile_name("eng", 300), "tesseract-eng-300dpi-v1");
+    assert_eq!(profile_name("deu", 600), "tesseract-deu-600dpi-v1");
 }
 
 #[test]
@@ -149,6 +155,18 @@ fn second_ocr_request_reuses_tsv_without_rendering_or_recognition() {
             self.recognitions.set(self.recognitions.get() + 1);
             Ok(include_str!("fixtures/tesseract-rotated-table.tsv").to_owned())
         }
+
+        fn lang(&self) -> &'static str {
+            "eng"
+        }
+
+        fn dpi(&self) -> u16 {
+            300
+        }
+
+        fn psm(&self) -> u8 {
+            3
+        }
     }
 
     let temp = tempfile::tempdir().unwrap();
@@ -210,6 +228,18 @@ fn failed_ocr_removes_temporary_page_renderings() {
 
         fn tsv(&self, _image: &Path) -> Result<String> {
             unreachable!("recognition must not run after orientation failure")
+        }
+
+        fn lang(&self) -> &'static str {
+            "eng"
+        }
+
+        fn dpi(&self) -> u16 {
+            300
+        }
+
+        fn psm(&self) -> u8 {
+            3
         }
     }
 
