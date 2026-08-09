@@ -51,6 +51,32 @@ impl PdfTextProvider for FakePdf {
     }
 }
 
+/// Resolves pages by PDF file name, so a locator sent to the wrong source's
+/// PDF fails instead of silently matching.
+struct PerSourcePdf {
+    pages: HashMap<(String, usize), String>,
+}
+
+impl PdfTextProvider for PerSourcePdf {
+    fn native_pages(&self, pdf: &Path, page: Option<usize>) -> Result<Vec<ExtractedPage>> {
+        let page = page.expect("validation requests one page");
+        let name = pdf.file_name().unwrap().to_string_lossy().into_owned();
+        let Some(text) = self.pages.get(&(name.clone(), page)) else {
+            bail!("missing fake page {page} for {name}");
+        };
+        Ok(vec![ExtractedPage {
+            page,
+            text: text.clone(),
+            spans: Vec::new(),
+            mean_confidence: None,
+        }])
+    }
+
+    fn ocr_page(&self, _pdf: &Path, _pdf_sha256: &str, _page: usize) -> Result<ExtractedPage> {
+        bail!("OCR extraction was not requested")
+    }
+}
+
 #[test]
 fn locator_requires_one_match_in_each_source() {
     let fixture = Fixture::new("Supported once in both sources.");
@@ -124,7 +150,7 @@ fn source_hash_mismatch_is_reported() {
         report
             .issues
             .iter()
-            .any(|issue| issue.code == "pdf_hash_mismatch")
+            .any(|issue| issue.code == "default/pdf_hash_mismatch")
     );
 }
 
@@ -225,10 +251,161 @@ fn rejects_canonical_source_symlinks_that_escape_the_corpus() {
         report
             .issues
             .iter()
-            .any(|issue| issue.code == "markdown_source_outside_repo"),
+            .any(|issue| issue.code == "default/markdown_source_outside_repo"),
         "{:?}",
         report.issues
     );
+}
+
+#[test]
+fn each_named_source_resolves_against_its_own_files() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(temp.path().join("md/smith-2019")).unwrap();
+    fs::create_dir_all(temp.path().join("pdfs")).unwrap();
+    fs::write(
+        temp.path().join("receipts.yaml"),
+        concat!(
+            "cache:\n  root: \".cache/pdf-text\"\n",
+            "corpus:\n",
+            "  sources:\n",
+            "    default:\n",
+            "      markdown: [\"md/{id}/{id}.md\"]\n",
+            "      pdf: \"pdfs/{id}.pdf\"\n",
+            "    supplement:\n",
+            "      markdown: [\"md/{id}-supp.md\"]\n",
+            "      pdf: \"pdfs/{id}-supp.pdf\"\n",
+        ),
+    )
+    .unwrap();
+    let primary_markdown = "Reported in the primary text.";
+    let supplement_markdown = "Reported in the appendix text.";
+    fs::write(
+        temp.path().join("md/smith-2019/smith-2019.md"),
+        primary_markdown,
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("md/smith-2019-supp.md"),
+        supplement_markdown,
+    )
+    .unwrap();
+    fs::write(temp.path().join("pdfs/smith-2019.pdf"), b"primary PDF").unwrap();
+    fs::write(
+        temp.path().join("pdfs/smith-2019-supp.pdf"),
+        b"supplement PDF",
+    )
+    .unwrap();
+    let corpus = Corpus::discover_from(temp.path(), None).unwrap();
+
+    let claim = "A claim bound to two sources.".to_owned();
+    let summary = SummaryDocument {
+        id: "smith-2019".to_owned(),
+        claims: vec![claim.clone()],
+        evidence: Some(Evidence {
+            sources: BTreeMap::from([
+                (
+                    DEFAULT_SOURCE.to_owned(),
+                    source_pair(
+                        &corpus,
+                        "md/smith-2019/smith-2019.md",
+                        "pdfs/smith-2019.pdf",
+                    ),
+                ),
+                (
+                    "supplement".to_owned(),
+                    source_pair(&corpus, "md/smith-2019-supp.md", "pdfs/smith-2019-supp.pdf"),
+                ),
+            ]),
+            claims: vec![ClaimEvidence {
+                claim: 0,
+                claim_sha256: sha256_bytes(claim.as_bytes()),
+                locators: vec![
+                    locator(DEFAULT_SOURCE, "the primary text"),
+                    locator("supplement", "the appendix text"),
+                ],
+            }],
+        }),
+    };
+
+    // Keyed by file name so a locator routed to the wrong source's PDF misses.
+    let report = validate_document(
+        &corpus,
+        &summary,
+        &PerSourcePdf {
+            pages: HashMap::from([
+                (
+                    ("smith-2019.pdf".to_owned(), 1),
+                    "Reported in the primary text.".to_owned(),
+                ),
+                (
+                    ("smith-2019-supp.pdf".to_owned(), 1),
+                    "Reported in the appendix text.".to_owned(),
+                ),
+            ]),
+        },
+    );
+
+    assert!(report.issues.is_empty(), "{:?}", report.issues);
+}
+
+#[test]
+fn a_source_without_corpus_templates_is_reported() {
+    let fixture = Fixture::new("Supported once.");
+    let mut summary = fixture.summary("Supported once", PdfBackend::MutoolNative);
+    let evidence = summary.evidence.as_mut().unwrap();
+    let orphan = evidence.sources.get(DEFAULT_SOURCE).unwrap().clone();
+    evidence.sources.insert("supplement".to_owned(), orphan);
+    let mut cited = evidence.claims[0].locators[0].clone();
+    cited.source = "supplement".to_owned();
+    evidence.claims[0].locators.push(cited);
+
+    let report = validate_document(
+        &fixture.corpus,
+        &summary,
+        &FakePdf {
+            pages: HashMap::from([((PdfBackend::MutoolNative, 1), "Supported once.".to_owned())]),
+        },
+    );
+
+    assert_eq!(
+        report
+            .issues
+            .iter()
+            .map(|issue| issue.code.as_str())
+            .collect::<Vec<_>>(),
+        ["unknown_source_template"],
+        "{:?}",
+        report.issues
+    );
+}
+
+fn source_pair(corpus: &Corpus, markdown: &str, pdf: &str) -> SourcePair {
+    SourcePair {
+        markdown: SourceRecord {
+            source: markdown.to_owned(),
+            sha256: sha256_file(&corpus.root().join(markdown)).unwrap(),
+        },
+        pdf: SourceRecord {
+            source: pdf.to_owned(),
+            sha256: sha256_file(&corpus.root().join(pdf)).unwrap(),
+        },
+    }
+}
+
+fn locator(source: &str, exact: &str) -> Locator {
+    Locator {
+        source: source.to_owned(),
+        exact: exact.to_owned(),
+        markdown: MarkdownLocator {
+            line: 1,
+            column: 1,
+            unit: UnitKind::Paragraph,
+        },
+        pdf: PdfLocator {
+            page: 1,
+            backend: PdfBackend::MutoolNative,
+        },
+    }
 }
 
 fn default_pair(summary: &mut SummaryDocument) -> &mut SourcePair {

@@ -1,12 +1,16 @@
-use std::{collections::HashMap, fs, path::Path};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fs,
+    path::{Path, PathBuf},
+};
 
 use serde::Serialize;
 
 use crate::{
     corpus::Corpus,
-    evidence::{DEFAULT_SOURCE, EvidenceIssue, PdfBackend, SummaryDocument},
+    evidence::{EvidenceIssue, PdfBackend, SummaryDocument},
     hash::sha256_file,
-    markdown::{exact_count, parse_units, resolve_unit},
+    markdown::{MarkdownUnit, exact_count, parse_units, resolve_unit},
     normalize::normalize,
     pdf::PdfTextProvider,
 };
@@ -39,119 +43,122 @@ pub fn validate_document(
             issues,
         };
     };
-    let Some(default_source) = evidence.sources.get(DEFAULT_SOURCE) else {
-        return ValidationReport {
-            id: summary.id.clone(),
-            issues,
-        };
-    };
 
-    let markdown_candidates = match corpus.markdown_candidates(&summary.id) {
-        Ok(paths) => paths,
-        Err(error) => {
-            issues.push(issue("invalid_id", error.to_string(), None, None));
-            return ValidationReport {
-                id: summary.id.clone(),
-                issues,
-            };
-        }
-    };
-    let markdown_path = markdown_candidates
-        .iter()
-        .find(|path| path.is_file())
-        .unwrap_or(&markdown_candidates[0]);
-    let pdf_path = match corpus.pdf_path(&summary.id) {
-        Ok(path) => path,
-        Err(error) => {
-            issues.push(issue("invalid_id", error.to_string(), None, None));
-            return ValidationReport {
-                id: summary.id.clone(),
-                issues,
-            };
-        }
-    };
+    let configured = corpus.source_names();
+    let mut source_units: BTreeMap<&str, Vec<MarkdownUnit>> = BTreeMap::new();
+    let mut source_pdf_path: BTreeMap<&str, PathBuf> = BTreeMap::new();
+    let mut source_pdf_sha256: BTreeMap<&str, Option<String>> = BTreeMap::new();
 
-    validate_source_path(
-        corpus,
-        "markdown",
-        &default_source.markdown.source,
-        markdown_path,
-        &mut issues,
-    );
-    validate_source_path(
-        corpus,
-        "pdf",
-        &default_source.pdf.source,
-        &pdf_path,
-        &mut issues,
-    );
-    let markdown_is_safe = validate_resolved_source(corpus, "markdown", markdown_path, &mut issues);
-    let pdf_is_safe = validate_resolved_source(corpus, "pdf", &pdf_path, &mut issues);
-    if !markdown_is_safe || !pdf_is_safe {
-        return ValidationReport {
-            id: summary.id.clone(),
-            issues,
-        };
-    }
-    let _markdown_sha256 = validate_file_hash(
-        "markdown",
-        markdown_path,
-        &default_source.markdown.sha256,
-        &mut issues,
-    );
-    let actual_pdf_sha256 =
-        validate_file_hash("pdf", &pdf_path, &default_source.pdf.sha256, &mut issues);
-
-    let markdown_source = match fs::read_to_string(markdown_path) {
-        Ok(source) => source,
-        Err(error) => {
+    for (source_name, pair) in &evidence.sources {
+        if !configured.iter().any(|name| name == source_name) {
             issues.push(issue(
+                "unknown_source_template",
+                format!("no configured templates for source {source_name:?}"),
+                None,
+                None,
+            ));
+            continue;
+        }
+        let markdown_candidates = match corpus.markdown_candidates_for(&summary.id, source_name) {
+            Ok(paths) => paths,
+            Err(error) => {
+                issues.push(issue("invalid_id", error.to_string(), None, None));
+                continue;
+            }
+        };
+        let markdown_path = markdown_candidates
+            .iter()
+            .find(|path| path.is_file())
+            .unwrap_or(&markdown_candidates[0]);
+        let pdf_path = match corpus.pdf_path_for(&summary.id, source_name) {
+            Ok(path) => path,
+            Err(error) => {
+                issues.push(issue("invalid_id", error.to_string(), None, None));
+                continue;
+            }
+        };
+
+        let markdown_label = format!("{source_name}/markdown");
+        let pdf_label = format!("{source_name}/pdf");
+        validate_source_path(
+            corpus,
+            &markdown_label,
+            &pair.markdown.source,
+            markdown_path,
+            &mut issues,
+        );
+        validate_source_path(corpus, &pdf_label, &pair.pdf.source, &pdf_path, &mut issues);
+        let markdown_is_safe =
+            validate_resolved_source(corpus, &markdown_label, markdown_path, &mut issues);
+        let pdf_is_safe = validate_resolved_source(corpus, &pdf_label, &pdf_path, &mut issues);
+        // Never read a source that resolves outside the corpus.
+        if !markdown_is_safe || !pdf_is_safe {
+            continue;
+        }
+
+        let _markdown_sha256 = validate_file_hash(
+            &markdown_label,
+            markdown_path,
+            &pair.markdown.sha256,
+            &mut issues,
+        );
+        let pdf_sha256 = validate_file_hash(&pdf_label, &pdf_path, &pair.pdf.sha256, &mut issues);
+        source_pdf_sha256.insert(source_name, pdf_sha256);
+        source_pdf_path.insert(source_name, pdf_path);
+
+        match fs::read_to_string(markdown_path) {
+            Ok(markdown_source) => {
+                source_units.insert(source_name, parse_units(&markdown_source));
+            }
+            Err(error) => issues.push(issue(
                 "markdown_read_failed",
                 format!("failed to read {}: {error}", markdown_path.display()),
                 None,
                 None,
-            ));
-            return ValidationReport {
-                id: summary.id.clone(),
-                issues,
-            };
+            )),
         }
-    };
-    let units = parse_units(&markdown_source);
-    let mut pdf_pages: HashMap<(PdfBackend, usize), Result<String, String>> = HashMap::new();
+    }
+
+    let mut pdf_pages: HashMap<(&str, PdfBackend, usize), Result<String, String>> = HashMap::new();
 
     for entry in &evidence.claims {
         for (locator_index, locator) in entry.locators.iter().enumerate() {
-            match resolve_unit(
-                &units,
-                locator.markdown.unit,
-                locator.markdown.line,
-                locator.markdown.column,
-            ) {
-                Ok(unit) => match exact_count(&unit.text, &locator.exact) {
-                    1 => {}
-                    0 => issues.push(issue(
-                        "markdown_missing",
-                        format!(
-                            "exact text does not occur in the recorded {:?} unit",
-                            locator.markdown.unit
-                        ),
+            let source_name = locator.source.as_str();
+
+            if let Some(units) = source_units.get(source_name) {
+                match resolve_unit(
+                    units,
+                    locator.markdown.unit,
+                    locator.markdown.line,
+                    locator.markdown.column,
+                ) {
+                    Ok(unit) => match exact_count(&unit.text, &locator.exact) {
+                        1 => {}
+                        0 => issues.push(issue(
+                            "markdown_missing",
+                            format!(
+                                "exact text does not occur in the recorded {:?} unit",
+                                locator.markdown.unit
+                            ),
+                            Some(entry.claim),
+                            Some(locator_index),
+                        )),
+                        count => issues.push(issue(
+                            "markdown_ambiguous",
+                            format!(
+                                "exact text occurs {count} times in the recorded Markdown unit"
+                            ),
+                            Some(entry.claim),
+                            Some(locator_index),
+                        )),
+                    },
+                    Err(error) => issues.push(issue(
+                        "markdown_unit_missing",
+                        error.to_string(),
                         Some(entry.claim),
                         Some(locator_index),
                     )),
-                    count => issues.push(issue(
-                        "markdown_ambiguous",
-                        format!("exact text occurs {count} times in the recorded Markdown unit"),
-                        Some(entry.claim),
-                        Some(locator_index),
-                    )),
-                },
-                Err(error) => issues.push(issue(
-                    "markdown_unit_missing",
-                    error.to_string(),
-                    Some(entry.claim),
-                    Some(locator_index),
-                )),
+                }
             }
 
             if locator.pdf.backend == PdfBackend::TesseractOcr && !corpus.ocr_config().enabled {
@@ -167,12 +174,18 @@ pub fn validate_document(
                 continue;
             }
 
-            let key = (locator.pdf.backend, locator.pdf.page);
+            let Some(pdf_path) = source_pdf_path.get(source_name) else {
+                continue;
+            };
+            let key = (source_name, locator.pdf.backend, locator.pdf.page);
             let extracted = pdf_pages.entry(key).or_insert_with(|| {
                 extract_pdf_page(
                     provider,
-                    &pdf_path,
-                    actual_pdf_sha256.as_deref().unwrap_or_default(),
+                    pdf_path,
+                    source_pdf_sha256
+                        .get(source_name)
+                        .and_then(Option::as_deref)
+                        .unwrap_or_default(),
                     locator.pdf.backend,
                     locator.pdf.page,
                 )
