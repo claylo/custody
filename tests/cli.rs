@@ -4,6 +4,8 @@ use std::{
     process::{Command, Output},
 };
 
+use receipts::hash::{sha256_bytes, sha256_file};
+
 fn receipts(corpus: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_receipts"))
         .arg("-C")
@@ -154,6 +156,189 @@ fn locate_refuses_ocr_fallback_when_disabled() {
     assert!(
         stderr.contains("OCR is disabled"),
         "should refuse OCR fallback: {stderr}"
+    );
+}
+
+#[test]
+fn locate_source_flag_selects_named_source_templates() {
+    let temp = tempfile::tempdir().unwrap();
+    for path in ["summaries", "md/doc-001-supp", "pdfs"] {
+        fs::create_dir_all(temp.path().join(path)).unwrap();
+    }
+    fs::write(
+        temp.path().join("receipts.yaml"),
+        concat!(
+            "cache:\n  root: \".cache/pdf-text\"\n",
+            "corpus:\n",
+            "  sources:\n",
+            "    default:\n",
+            "      markdown:\n        - \"md/{id}/{id}.md\"\n",
+            "      pdf: \"pdfs/{id}.pdf\"\n",
+            "    supplement:\n",
+            "      markdown:\n        - \"md/{id}-supp/{id}-supp.md\"\n",
+            "      pdf: \"pdfs/{id}-supp.pdf\"\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("summaries/doc-001.yaml"),
+        "id: doc-001\nclaims:\n  - \"The finding was confirmed by supplementary data.\"\n",
+    )
+    .unwrap();
+    // Only the supplement source has a Markdown file on disk; the default
+    // source's template resolves to a path that does not exist. A run that
+    // reaches PDF/OCR resolution instead of failing on Markdown lookup proves
+    // `--source` picked the supplement templates.
+    fs::write(
+        temp.path().join("md/doc-001-supp/doc-001-supp.md"),
+        "Supplementary data confirms the result.\n",
+    )
+    .unwrap();
+    fs::write(temp.path().join("pdfs/doc-001-supp.pdf"), MINIMAL_PDF).unwrap();
+
+    let exact_args = [
+        "locate",
+        "doc-001",
+        "--claim",
+        "0",
+        "--exact",
+        "Supplementary data confirms the result.",
+        "--page",
+        "1",
+    ];
+
+    let default_run = receipts(temp.path(), &exact_args);
+    assert!(!default_run.status.success());
+    let default_stderr = stderr(&default_run);
+    assert!(
+        default_stderr.contains("no canonical Markdown source found for doc-001 (source: default)"),
+        "omitting --source should resolve against the default templates: {default_stderr}"
+    );
+
+    let mut supplement_args = exact_args.to_vec();
+    supplement_args.extend(["--source", "supplement"]);
+    let supplement_run = receipts(temp.path(), &supplement_args);
+    assert!(!supplement_run.status.success());
+    let supplement_stderr = stderr(&supplement_run);
+    assert!(
+        !supplement_stderr.contains("no canonical Markdown source found"),
+        "--source supplement should resolve its own Markdown template: {supplement_stderr}"
+    );
+    assert!(
+        supplement_stderr.contains("Tesseract"),
+        "should reach PDF/OCR resolution once Markdown resolves via the named source: {supplement_stderr}"
+    );
+}
+
+#[test]
+fn audit_recognizes_all_configured_source_templates() {
+    let temp = tempfile::tempdir().unwrap();
+    for path in ["summaries", "md/doc-001", "md/doc-001-supp", "pdfs"] {
+        fs::create_dir_all(temp.path().join(path)).unwrap();
+    }
+    fs::write(
+        temp.path().join("receipts.yaml"),
+        concat!(
+            "cache:\n  root: \".cache/pdf-text\"\n",
+            "corpus:\n",
+            "  sources:\n",
+            "    default:\n",
+            "      markdown:\n        - \"md/{id}/{id}.md\"\n",
+            "      pdf: \"pdfs/{id}.pdf\"\n",
+            "    supplement:\n",
+            "      markdown:\n        - \"md/{id}-supp/{id}-supp.md\"\n",
+            "      pdf: \"pdfs/{id}-supp.pdf\"\n",
+        ),
+    )
+    .unwrap();
+
+    let md_path = temp.path().join("md/doc-001/doc-001.md");
+    let md_supp_path = temp.path().join("md/doc-001-supp/doc-001-supp.md");
+    let pdf_path = temp.path().join("pdfs/doc-001.pdf");
+    let pdf_supp_path = temp.path().join("pdfs/doc-001-supp.pdf");
+    fs::write(&md_path, "The primary finding was significant.\n").unwrap();
+    fs::write(&md_supp_path, "Supplementary data confirms the result.\n").unwrap();
+    fs::write(&pdf_path, MINIMAL_PDF).unwrap();
+    fs::write(&pdf_supp_path, MINIMAL_PDF).unwrap();
+
+    let md_sha = sha256_file(&md_path).unwrap();
+    let md_supp_sha = sha256_file(&md_supp_path).unwrap();
+    let pdf_sha = sha256_file(&pdf_path).unwrap();
+    let pdf_supp_sha = sha256_file(&pdf_supp_path).unwrap();
+    let claim = "The finding was confirmed by supplementary data.";
+    let claim_sha = sha256_bytes(claim.as_bytes());
+
+    fs::write(
+        temp.path().join("summaries/doc-001.yaml"),
+        format!(
+            "id: doc-001
+claims:
+  - \"{claim}\"
+evidence:
+  sources:
+    default:
+      markdown:
+        source: \"md/doc-001/doc-001.md\"
+        sha256: \"{md_sha}\"
+      pdf:
+        source: \"pdfs/doc-001.pdf\"
+        sha256: \"{pdf_sha}\"
+    supplement:
+      markdown:
+        source: \"md/doc-001-supp/doc-001-supp.md\"
+        sha256: \"{md_supp_sha}\"
+      pdf:
+        source: \"pdfs/doc-001-supp.pdf\"
+        sha256: \"{pdf_supp_sha}\"
+  claims:
+    - claim: 0
+      claim_sha256: \"{claim_sha}\"
+      locators:
+        - source: default
+          exact: \"The primary finding was significant.\"
+          markdown:
+            line: 1
+            column: 1
+            unit: paragraph
+          pdf:
+            page: 1
+            backend: mutool-native
+        - source: supplement
+          exact: \"Supplementary data confirms the result.\"
+          markdown:
+            line: 1
+            column: 1
+            unit: paragraph
+          pdf:
+            page: 1
+            backend: mutool-native
+"
+        ),
+    )
+    .unwrap();
+
+    let output = receipts(temp.path(), &["audit", "doc-001"]);
+    let stderr_text = stderr(&output);
+
+    assert!(
+        !stderr_text.contains("unknown_source_template"),
+        "both source templates should be recognized: {stderr_text}"
+    );
+    assert!(
+        !stderr_text.contains("_source_mismatch"),
+        "recorded source paths should match resolved paths: {stderr_text}"
+    );
+    assert!(
+        !stderr_text.contains("hash_mismatch"),
+        "recorded hashes should match the fixture files: {stderr_text}"
+    );
+    // MINIMAL_PDF carries no extractable text, so native/OCR extraction finds
+    // nothing for either locator and the audit still fails overall — but for
+    // a PDF-content reason, not a source-plumbing reason.
+    assert!(!output.status.success());
+    assert!(
+        stderr_text.contains("pdf_missing") || stderr_text.contains("pdf_extraction_failed"),
+        "expected a PDF-stage failure, not a source-plumbing failure: {stderr_text}"
     );
 }
 

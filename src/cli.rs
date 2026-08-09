@@ -67,6 +67,8 @@ struct LocateArgs {
     claim: usize,
     #[arg(long)]
     exact: String,
+    #[arg(long, default_value = DEFAULT_SOURCE)]
+    source: String,
     #[arg(long)]
     page: Option<usize>,
     #[arg(long)]
@@ -122,6 +124,7 @@ enum AuditStatus {
 
 #[derive(Debug, Serialize)]
 struct LocateResult {
+    source: String,
     markdown: SourceRecord,
     pdf: SourceRecord,
     claim: ClaimEvidence,
@@ -257,7 +260,7 @@ fn locate(corpus: &Corpus, args: &LocateArgs, json: bool) -> Result<()> {
         bail!("--exact is empty after whitespace normalization");
     }
 
-    let markdown_path = resolve_markdown(corpus, &args.id)?;
+    let markdown_path = resolve_markdown_for(corpus, &args.id, &args.source)?;
     let markdown_source = fs::read_to_string(&markdown_path)
         .with_context(|| format!("failed to read {}", markdown_path.display()))?;
     let candidates: Vec<_> = parse_units(&markdown_source)
@@ -288,7 +291,7 @@ fn locate(corpus: &Corpus, args: &LocateArgs, json: bool) -> Result<()> {
         );
     };
 
-    let pdf_path = corpus.pdf_path(&args.id)?;
+    let pdf_path = corpus.pdf_path_for(&args.id, &args.source)?;
     if !pdf_path.is_file() {
         bail!("canonical PDF is missing: {}", pdf_path.display());
     }
@@ -303,6 +306,7 @@ fn locate(corpus: &Corpus, args: &LocateArgs, json: bool) -> Result<()> {
         corpus.ocr_config().enabled,
     )?;
     let result = LocateResult {
+        source: args.source.clone(),
         markdown: SourceRecord {
             source: relative(corpus, &markdown_path),
             sha256: sha256_file(&markdown_path)?,
@@ -315,7 +319,7 @@ fn locate(corpus: &Corpus, args: &LocateArgs, json: bool) -> Result<()> {
             claim: args.claim,
             claim_sha256: crate::hash::sha256_bytes(claim.as_bytes()),
             locators: vec![Locator {
-                source: DEFAULT_SOURCE.to_owned(),
+                source: args.source.clone(),
                 exact,
                 markdown: MarkdownLocator {
                     line: unit.line,
@@ -564,12 +568,12 @@ fn summary_ids(corpus: &Corpus) -> Result<Vec<String>> {
     Ok(ids)
 }
 
-fn resolve_markdown(corpus: &Corpus, id: &str) -> Result<PathBuf> {
-    let candidates = corpus.markdown_candidates(id)?;
+fn resolve_markdown_for(corpus: &Corpus, id: &str, source: &str) -> Result<PathBuf> {
+    let candidates = corpus.markdown_candidates_for(id, source)?;
     candidates
         .into_iter()
         .find(|path| path.is_file())
-        .with_context(|| format!("no canonical Markdown source found for {id}"))
+        .with_context(|| format!("no canonical Markdown source found for {id} (source: {source})"))
 }
 
 fn relative(corpus: &Corpus, path: &Path) -> String {
