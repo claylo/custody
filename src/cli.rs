@@ -167,7 +167,9 @@ pub fn run() -> Result<()> {
 }
 
 fn doctor(corpus: &Corpus, json: bool, quiet: bool) -> Result<()> {
-    let tools = PdfTools::new(corpus.cache_root().to_path_buf());
+    let ocr = corpus.ocr_config();
+    let tools = PdfTools::new(corpus.cache_root().to_path_buf(), ocr);
+    let ocr_dpi = u16::try_from(ocr.dpi).unwrap_or(u16::MAX);
     let mut checks = vec![
         ("corpus", true, corpus.root().display().to_string()),
         (
@@ -193,7 +195,7 @@ fn doctor(corpus: &Corpus, json: bool, quiet: bool) -> Result<()> {
         (
             "OCR profile",
             true,
-            crate::pdf::tesseract::profile_name("eng", 300),
+            crate::pdf::tesseract::profile_name(&ocr.lang, ocr_dpi),
         ),
     ];
     fs::create_dir_all(tools.cache.root()).with_context(|| {
@@ -291,7 +293,7 @@ fn locate(corpus: &Corpus, args: &LocateArgs, json: bool) -> Result<()> {
         bail!("canonical PDF is missing: {}", pdf_path.display());
     }
     let pdf_sha256 = sha256_file(&pdf_path)?;
-    let tools = PdfTools::new(corpus.cache_root().to_path_buf());
+    let tools = PdfTools::new(corpus.cache_root().to_path_buf(), corpus.ocr_config());
     let (page, backend, bbox, mean_confidence) =
         locate_pdf(&tools, &pdf_path, &pdf_sha256, args.page, &exact)?;
     let result = LocateResult {
@@ -389,7 +391,7 @@ fn check(corpus: &Corpus, ids: &[String], json: bool, quiet: bool) -> Result<()>
     } else {
         summary_ids(corpus)?
     };
-    let tools = PdfTools::new(corpus.cache_root().to_path_buf());
+    let tools = PdfTools::new(corpus.cache_root().to_path_buf(), corpus.ocr_config());
     let mut report = CheckReport {
         valid: 0,
         skipped: 0,
@@ -439,7 +441,7 @@ fn check(corpus: &Corpus, ids: &[String], json: bool, quiet: bool) -> Result<()>
 }
 
 fn audit(corpus: &Corpus, strict: bool, ids: &[String], json: bool, quiet: bool) -> Result<()> {
-    let tools = PdfTools::new(corpus.cache_root().to_path_buf());
+    let tools = PdfTools::new(corpus.cache_root().to_path_buf(), corpus.ocr_config());
     let mut report = AuditReport {
         valid: 0,
         missing: 0,

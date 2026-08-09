@@ -99,6 +99,24 @@ fn doctor_reports_corpus_and_executables() {
 }
 
 #[test]
+fn doctor_reports_configured_ocr_profile() {
+    let corpus = fixture_corpus();
+    fs::write(
+        corpus.path().join("receipts.yaml"),
+        "cache:\n  root: \".cache/pdf-text\"\npdf:\n  ocr:\n    dpi: 600\n    lang: deu\n",
+    )
+    .unwrap();
+    let output = receipts(corpus.path(), &["doctor"]);
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    let output = stdout(&output);
+    assert!(
+        output.contains("OCR profile: ok (tesseract-deu-600dpi-v1)"),
+        "doctor should show derived profile: {output}"
+    );
+}
+
+#[test]
 fn doctor_fails_when_runtime_tools_are_unavailable() {
     let corpus = fixture_corpus();
     let empty_path = tempfile::tempdir().unwrap();

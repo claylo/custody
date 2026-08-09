@@ -96,10 +96,11 @@ pub struct PdfTools {
 
 impl PdfTools {
     #[must_use]
-    pub fn new(cache_root: std::path::PathBuf) -> Self {
+    pub fn new(cache_root: std::path::PathBuf, ocr: &crate::config::OcrConfig) -> Self {
+        let dpi = u16::try_from(ocr.dpi).unwrap_or(u16::MAX);
         Self {
             mutool: mutool::Mutool::default(),
-            tesseract: tesseract::Tesseract::default(),
+            tesseract: tesseract::Tesseract::new(ocr.lang.clone(), dpi, ocr.page_segmentation_mode),
             cache: cache::OcrCache::new(cache_root),
         }
     }
