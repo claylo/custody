@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
+use librebar::cli::ResolvedOutputFormat;
 use serde::Serialize;
 
 use crate::{
@@ -43,9 +44,6 @@ working directory."
 pub struct Cli {
     #[command(flatten)]
     common: librebar::cli::CommonArgs,
-    /// Load configuration from an explicit file.
-    #[arg(long, global = true, value_name = "FILE")]
-    config: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
@@ -150,19 +148,21 @@ pub fn run() -> Result<()> {
     {
         return Ok(());
     }
+    let config_path = cli
+        .common
+        .config_path()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
     let cwd = std::env::current_dir().context("failed to read current directory")?;
-    let corpus = Corpus::discover_from(&cwd, cli.config.as_deref())?;
+    let explicit = config_path.as_ref().map(|p| Path::new(p.as_str()));
+    let corpus = Corpus::discover_from(&cwd, explicit)?;
+    let format = cli.common.output_format();
+    let json = format == ResolvedOutputFormat::Json;
+    let quiet = cli.common.quiet;
     match cli.command {
-        Command::Doctor => doctor(&corpus, cli.common.json, cli.common.quiet),
-        Command::Locate(args) => locate(&corpus, &args, cli.common.json),
-        Command::Check(args) => check(&corpus, &args.ids, cli.common.json, cli.common.quiet),
-        Command::Audit(args) => audit(
-            &corpus,
-            args.strict,
-            &args.ids,
-            cli.common.json,
-            cli.common.quiet,
-        ),
+        Command::Doctor => doctor(&corpus, json, quiet),
+        Command::Locate(args) => locate(&corpus, &args, json),
+        Command::Check(args) => check(&corpus, &args.ids, json, quiet),
+        Command::Audit(args) => audit(&corpus, args.strict, &args.ids, json, quiet),
     }
 }
 
