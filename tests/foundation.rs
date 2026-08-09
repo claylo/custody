@@ -238,6 +238,37 @@ fn rejects_source_names_that_are_not_path_components() {
 }
 
 #[test]
+fn resolves_source_specific_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    write_config(dir.path(), TWO_SOURCE_CONFIG);
+    let corpus = Corpus::discover_from(dir.path(), None).unwrap();
+    let root = corpus.root().to_path_buf();
+
+    assert_eq!(
+        corpus
+            .markdown_candidates_for("smith-2019", "default")
+            .unwrap(),
+        vec![root.join("md/smith-2019.md")]
+    );
+    assert_eq!(
+        corpus
+            .markdown_candidates_for("smith-2019", "supplement")
+            .unwrap(),
+        vec![root.join("md/smith-2019-supp.md")]
+    );
+    assert_eq!(
+        corpus.pdf_path_for("smith-2019", "supplement").unwrap(),
+        root.join("pdfs/smith-2019-supp.pdf")
+    );
+    assert!(corpus.pdf_path_for("smith-2019", "unknown").is_err());
+    assert!(
+        corpus
+            .markdown_candidates_for("smith-2019", "unknown")
+            .is_err()
+    );
+}
+
+#[test]
 fn resolves_the_platform_cache_root_by_default() {
     let dir = tempfile::tempdir().unwrap();
     write_config(dir.path(), "corpus:\n  pdf: \"pdfs/{id}.pdf\"\n");

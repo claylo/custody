@@ -109,9 +109,13 @@ impl Corpus {
     }
 
     pub fn markdown_candidates(&self, id: &str) -> Result<Vec<PathBuf>> {
+        self.markdown_candidates_for(id, DEFAULT_SOURCE)
+    }
+
+    pub fn markdown_candidates_for(&self, id: &str, source: &str) -> Result<Vec<PathBuf>> {
         validate_id(id)?;
         Ok(self
-            .templates(DEFAULT_SOURCE)?
+            .templates(source)?
             .markdown
             .iter()
             .map(|template| self.root.join(render(template, id)))
@@ -119,10 +123,12 @@ impl Corpus {
     }
 
     pub fn pdf_path(&self, id: &str) -> Result<PathBuf> {
+        self.pdf_path_for(id, DEFAULT_SOURCE)
+    }
+
+    pub fn pdf_path_for(&self, id: &str, source: &str) -> Result<PathBuf> {
         validate_id(id)?;
-        Ok(self
-            .root
-            .join(render(&self.templates(DEFAULT_SOURCE)?.pdf, id)))
+        Ok(self.root.join(render(&self.templates(source)?.pdf, id)))
     }
 
     fn templates(&self, source: &str) -> Result<&SourceTemplates> {
