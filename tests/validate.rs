@@ -1,11 +1,16 @@
-use std::{collections::HashMap, fs, os::unix::fs::symlink, path::Path};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fs,
+    os::unix::fs::symlink,
+    path::Path,
+};
 
 use anyhow::{Result, bail};
 use receipts::{
     corpus::Corpus,
     evidence::{
-        ClaimEvidence, Evidence, Locator, MarkdownLocator, PdfBackend, PdfLocator, SourceRecord,
-        SummaryDocument,
+        ClaimEvidence, DEFAULT_SOURCE, Evidence, Locator, MarkdownLocator, PdfBackend, PdfLocator,
+        SourcePair, SourceRecord, SummaryDocument,
     },
     hash::{sha256_bytes, sha256_file},
     markdown::{UnitKind, parse_units},
@@ -112,7 +117,7 @@ fn locator_is_bounded_to_the_recorded_markdown_unit() {
 fn source_hash_mismatch_is_reported() {
     let fixture = Fixture::new("Supported once.");
     let mut summary = fixture.summary("Supported once", PdfBackend::MutoolNative);
-    summary.evidence.as_mut().unwrap().pdf.sha256 = "0".repeat(64);
+    default_pair(&mut summary).pdf.sha256 = "0".repeat(64);
     let report = validate_document(&fixture.corpus, &summary, &FakePdf::default());
 
     assert!(
@@ -149,7 +154,7 @@ fn actual_pdf_hash_not_recorded_hash_keys_ocr() {
 
     let fixture = Fixture::new("Supported once.");
     let mut summary = fixture.summary("Supported once", PdfBackend::TesseractOcr);
-    summary.evidence.as_mut().unwrap().pdf.sha256 = "../recorded-hash".to_owned();
+    default_pair(&mut summary).pdf.sha256 = "../recorded-hash".to_owned();
     let actual = sha256_file(&fixture.corpus.root().join("pdfs/smith-2019.pdf")).unwrap();
     let report = validate_document(
         &fixture.corpus,
@@ -207,7 +212,7 @@ fn rejects_canonical_source_symlinks_that_escape_the_corpus() {
     fs::remove_file(&markdown_path).unwrap();
     symlink(outside.path(), &markdown_path).unwrap();
     let mut summary = fixture.summary("Supported once", PdfBackend::MutoolNative);
-    summary.evidence.as_mut().unwrap().markdown.sha256 = sha256_file(outside.path()).unwrap();
+    default_pair(&mut summary).markdown.sha256 = sha256_file(outside.path()).unwrap();
     let report = validate_document(
         &fixture.corpus,
         &summary,
@@ -224,6 +229,16 @@ fn rejects_canonical_source_symlinks_that_escape_the_corpus() {
         "{:?}",
         report.issues
     );
+}
+
+fn default_pair(summary: &mut SummaryDocument) -> &mut SourcePair {
+    summary
+        .evidence
+        .as_mut()
+        .unwrap()
+        .sources
+        .get_mut(DEFAULT_SOURCE)
+        .unwrap()
 }
 
 struct Fixture {
@@ -264,18 +279,25 @@ impl Fixture {
             id: "smith-2019".to_owned(),
             claims: vec![claim.clone()],
             evidence: Some(Evidence {
-                markdown: SourceRecord {
-                    source: "md/smith-2019/smith-2019.md".to_owned(),
-                    sha256: sha256_bytes(self.markdown.as_bytes()),
-                },
-                pdf: SourceRecord {
-                    source: "pdfs/smith-2019.pdf".to_owned(),
-                    sha256: sha256_file(&self.corpus.root().join("pdfs/smith-2019.pdf")).unwrap(),
-                },
+                sources: BTreeMap::from([(
+                    DEFAULT_SOURCE.to_owned(),
+                    SourcePair {
+                        markdown: SourceRecord {
+                            source: "md/smith-2019/smith-2019.md".to_owned(),
+                            sha256: sha256_bytes(self.markdown.as_bytes()),
+                        },
+                        pdf: SourceRecord {
+                            source: "pdfs/smith-2019.pdf".to_owned(),
+                            sha256: sha256_file(&self.corpus.root().join("pdfs/smith-2019.pdf"))
+                                .unwrap(),
+                        },
+                    },
+                )]),
                 claims: vec![ClaimEvidence {
                     claim: 0,
                     claim_sha256: sha256_bytes(claim.as_bytes()),
                     locators: vec![Locator {
+                        source: DEFAULT_SOURCE.to_owned(),
                         exact: exact.to_owned(),
                         markdown: MarkdownLocator {
                             line: unit.line,

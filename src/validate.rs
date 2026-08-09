@@ -4,7 +4,7 @@ use serde::Serialize;
 
 use crate::{
     corpus::Corpus,
-    evidence::{EvidenceIssue, PdfBackend, SummaryDocument},
+    evidence::{DEFAULT_SOURCE, EvidenceIssue, PdfBackend, SummaryDocument},
     hash::sha256_file,
     markdown::{exact_count, parse_units, resolve_unit},
     normalize::normalize,
@@ -39,6 +39,12 @@ pub fn validate_document(
             issues,
         };
     };
+    let Some(default_source) = evidence.sources.get(DEFAULT_SOURCE) else {
+        return ValidationReport {
+            id: summary.id.clone(),
+            issues,
+        };
+    };
 
     let markdown_candidates = match corpus.markdown_candidates(&summary.id) {
         Ok(paths) => paths,
@@ -68,11 +74,17 @@ pub fn validate_document(
     validate_source_path(
         corpus,
         "markdown",
-        &evidence.markdown.source,
+        &default_source.markdown.source,
         markdown_path,
         &mut issues,
     );
-    validate_source_path(corpus, "pdf", &evidence.pdf.source, &pdf_path, &mut issues);
+    validate_source_path(
+        corpus,
+        "pdf",
+        &default_source.pdf.source,
+        &pdf_path,
+        &mut issues,
+    );
     let markdown_is_safe = validate_resolved_source(corpus, "markdown", markdown_path, &mut issues);
     let pdf_is_safe = validate_resolved_source(corpus, "pdf", &pdf_path, &mut issues);
     if !markdown_is_safe || !pdf_is_safe {
@@ -84,10 +96,11 @@ pub fn validate_document(
     let _markdown_sha256 = validate_file_hash(
         "markdown",
         markdown_path,
-        &evidence.markdown.sha256,
+        &default_source.markdown.sha256,
         &mut issues,
     );
-    let actual_pdf_sha256 = validate_file_hash("pdf", &pdf_path, &evidence.pdf.sha256, &mut issues);
+    let actual_pdf_sha256 =
+        validate_file_hash("pdf", &pdf_path, &default_source.pdf.sha256, &mut issues);
 
     let markdown_source = match fs::read_to_string(markdown_path) {
         Ok(source) => source,

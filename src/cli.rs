@@ -11,8 +11,8 @@ use serde::Serialize;
 use crate::{
     corpus::Corpus,
     evidence::{
-        ClaimEvidence, Locator, MarkdownLocator, PdfBackend, PdfLocator, SourceRecord,
-        parse_summary,
+        ClaimEvidence, DEFAULT_SOURCE, Locator, MarkdownLocator, PdfBackend, PdfLocator,
+        SourceRecord, parse_summary,
     },
     hash::sha256_file,
     markdown::{exact_count, parse_units},
@@ -315,6 +315,7 @@ fn locate(corpus: &Corpus, args: &LocateArgs, json: bool) -> Result<()> {
             claim: args.claim,
             claim_sha256: crate::hash::sha256_bytes(claim.as_bytes()),
             locators: vec![Locator {
+                source: DEFAULT_SOURCE.to_owned(),
                 exact,
                 markdown: MarkdownLocator {
                     line: unit.line,

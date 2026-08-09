@@ -1,7 +1,13 @@
+use std::collections::{BTreeMap, BTreeSet};
+
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 use crate::{hash::sha256_bytes, markdown::UnitKind, normalize::normalize, terms::Terms};
+
+/// The source name a document gets when it declares only one source pair.
+pub const DEFAULT_SOURCE: &str = "default";
 
 /// Summary fields needed for evidence validation.
 #[derive(Debug, Clone, Deserialize)]
@@ -15,9 +21,15 @@ pub struct SummaryDocument {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Evidence {
+    pub sources: BTreeMap<String, SourcePair>,
+    pub claims: Vec<ClaimEvidence>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SourcePair {
     pub markdown: SourceRecord,
     pub pdf: SourceRecord,
-    pub claims: Vec<ClaimEvidence>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,9 +50,15 @@ pub struct ClaimEvidence {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Locator {
+    #[serde(default = "default_source_name")]
+    pub source: String,
     pub exact: String,
     pub markdown: MarkdownLocator,
     pub pdf: PdfLocator,
+}
+
+fn default_source_name() -> String {
+    DEFAULT_SOURCE.to_owned()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,12 +104,66 @@ pub struct EvidenceIssue {
     pub locator: Option<usize>,
 }
 
+/// Whether a source name is a safe single path component.
+#[must_use]
+pub fn validate_source_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_')
+        })
+}
+
 /// Parse a complete summary while retaining only validation-relevant fields.
 pub fn parse_summary(content: &str, terms: &Terms) -> Result<SummaryDocument> {
     let mut value =
         librebar::config::parse_yaml(content).context("failed to parse summary YAML")?;
     terms.canonicalize(&mut value)?;
+    desugar_evidence_sources(&mut value)?;
     serde_json::from_value(value).context("failed to decode summary evidence")
+}
+
+/// Rewrite the single-source shorthand into the general `sources` map.
+///
+/// This runs on the raw document so the typed structs only ever see one shape,
+/// and so `deny_unknown_fields` still rejects genuinely unknown keys.
+fn desugar_evidence_sources(value: &mut Value) -> Result<()> {
+    let Some(evidence) = value.get_mut("evidence").and_then(Value::as_object_mut) else {
+        return Ok(());
+    };
+
+    let bare = evidence.contains_key("markdown") || evidence.contains_key("pdf");
+    if bare && evidence.contains_key("sources") {
+        bail!("evidence declares both bare markdown/pdf and sources; use one form");
+    }
+    if bare {
+        let mut pair = Map::new();
+        for key in ["markdown", "pdf"] {
+            if let Some(record) = evidence.remove(key) {
+                pair.insert(key.to_owned(), record);
+            }
+        }
+        let mut sources = Map::new();
+        sources.insert(DEFAULT_SOURCE.to_owned(), Value::Object(pair));
+        evidence.insert("sources".to_owned(), Value::Object(sources));
+    }
+
+    let Some(entries) = evidence.get_mut("claims").and_then(Value::as_array_mut) else {
+        return Ok(());
+    };
+    for entry in entries {
+        let Some(locators) = entry.get_mut("locators").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for locator in locators {
+            if let Some(locator) = locator.as_object_mut() {
+                locator
+                    .entry("source")
+                    .or_insert_with(|| Value::String(DEFAULT_SOURCE.to_owned()));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 impl SummaryDocument {
@@ -115,9 +187,28 @@ impl SummaryDocument {
         };
         let mut issues = Vec::new();
 
-        validate_source("Markdown", &evidence.markdown, &mut issues);
-        validate_source("PDF", &evidence.pdf, &mut issues);
+        if evidence.sources.is_empty() {
+            issues.push(issue(
+                "empty_sources",
+                "evidence declares no sources",
+                None,
+                None,
+            ));
+        }
+        for (name, pair) in &evidence.sources {
+            if !validate_source_name(name) {
+                issues.push(issue(
+                    "invalid_source_name",
+                    format!("source name {name:?} is not a valid path component"),
+                    None,
+                    None,
+                ));
+            }
+            validate_source(&format!("{name}/markdown"), &pair.markdown, &mut issues);
+            validate_source(&format!("{name}/pdf"), &pair.pdf, &mut issues);
+        }
 
+        let mut referenced: BTreeSet<&str> = BTreeSet::new();
         let mut counts = vec![0_usize; self.claims.len()];
         for entry in &evidence.claims {
             if entry.claim >= self.claims.len() {
@@ -164,6 +255,16 @@ impl SummaryDocument {
             );
 
             for (locator_index, locator) in entry.locators.iter().enumerate() {
+                if evidence.sources.contains_key(&locator.source) {
+                    referenced.insert(locator.source.as_str());
+                } else {
+                    issues.push(issue(
+                        "unknown_source",
+                        format!("locator references undeclared source {:?}", locator.source),
+                        Some(entry.claim),
+                        Some(locator_index),
+                    ));
+                }
                 validate_locator(entry.claim, locator_index, locator, &mut issues);
             }
         }
@@ -183,6 +284,17 @@ impl SummaryDocument {
                     Some(index),
                     None,
                 )),
+            }
+        }
+
+        for name in evidence.sources.keys() {
+            if !referenced.contains(name.as_str()) {
+                issues.push(issue(
+                    "unused_source",
+                    format!("source {name:?} is declared but no locator references it"),
+                    None,
+                    None,
+                ));
             }
         }
 
