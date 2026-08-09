@@ -161,3 +161,28 @@ fn resolves_the_platform_cache_root_by_default() {
     assert_eq!(corpus.cache_root(), config::platform_cache_root().unwrap());
     assert!(corpus.cache_root().ends_with("pdf-text"));
 }
+
+#[test]
+fn rejects_invalid_page_segmentation_mode() {
+    let dir = tempfile::tempdir().unwrap();
+    write_config(
+        dir.path(),
+        "cache:\n  root: \"c\"\npdf:\n  ocr:\n    page_segmentation_mode: 14\n",
+    );
+    assert!(Corpus::discover_from(dir.path(), None).is_err());
+}
+
+#[test]
+fn exposes_ocr_config_from_corpus() {
+    let dir = tempfile::tempdir().unwrap();
+    write_config(
+        dir.path(),
+        "cache:\n  root: \"c\"\npdf:\n  ocr:\n    dpi: 600\n    lang: deu\n",
+    );
+    let corpus = Corpus::discover_from(dir.path(), None).unwrap();
+
+    assert_eq!(corpus.ocr_config().dpi, 600);
+    assert_eq!(corpus.ocr_config().lang, "deu");
+    assert!(corpus.ocr_config().enabled);
+    assert_eq!(corpus.ocr_config().page_segmentation_mode, 3);
+}

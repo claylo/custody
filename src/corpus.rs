@@ -14,6 +14,7 @@ pub struct Corpus {
     cache_root: PathBuf,
     config_file: Option<PathBuf>,
     terms: crate::terms::Terms,
+    ocr_config: crate::config::OcrConfig,
 }
 
 impl Corpus {
@@ -46,6 +47,7 @@ impl Corpus {
             cache_root,
             config_file,
             terms: config.terms,
+            ocr_config: config.pdf.ocr,
         })
     }
 
@@ -53,6 +55,12 @@ impl Corpus {
     #[must_use]
     pub const fn terms(&self) -> &crate::terms::Terms {
         &self.terms
+    }
+
+    /// OCR fallback settings for this corpus.
+    #[must_use]
+    pub const fn ocr_config(&self) -> &crate::config::OcrConfig {
+        &self.ocr_config
     }
 
     #[must_use]
