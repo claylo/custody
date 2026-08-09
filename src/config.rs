@@ -3,11 +3,13 @@
 //! Layout is declared in `receipts.yaml`, discovered by walking up from the
 //! working directory. The directory containing that file is the corpus root.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 use librebar::camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 /// Merged configuration from defaults, user config, and project config.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -25,16 +27,40 @@ pub struct Config {
 pub struct CorpusLayout {
     /// Template for a summary document.
     pub summaries: String,
+    /// Markdown/PDF template pairs, keyed by source name.
+    pub sources: BTreeMap<String, SourceTemplates>,
+}
+
+impl Default for CorpusLayout {
+    fn default() -> Self {
+        let mut sources = BTreeMap::new();
+        sources.insert(
+            crate::evidence::DEFAULT_SOURCE.to_owned(),
+            SourceTemplates::default(),
+        );
+        Self {
+            summaries: "summaries/{id}.yaml".to_owned(),
+            sources,
+        }
+    }
+}
+
+/// Markdown and PDF templates for one named source.
+///
+/// Both fields are required: a source that silently inherited the default
+/// PDF template would resolve two named sources to the same file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SourceTemplates {
     /// Candidate templates for converted Markdown, tried in order.
     pub markdown: Vec<String>,
     /// Template for the canonical PDF.
     pub pdf: String,
 }
 
-impl Default for CorpusLayout {
+impl Default for SourceTemplates {
     fn default() -> Self {
         Self {
-            summaries: "summaries/{id}.yaml".to_owned(),
             markdown: vec!["md/{id}.md".to_owned(), "md/{id}/{id}.md".to_owned()],
             pdf: "pdfs/{id}.pdf".to_owned(),
         }
@@ -101,9 +127,18 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> Result<Discovered> {
     if let Some(path) = explicit {
         loader = loader.with_file(to_utf8(path)?);
     }
-    let (config, sources) = loader
-        .load::<Config>()
+    // Loaded as a `Value` so desugaring sees only what the files declared:
+    // seeding the merge with `Config::default()` would make every corpus look
+    // like it had declared `sources`.
+    let (mut raw, sources): (Value, _) = loader
+        .load()
         .map_err(|error| anyhow!("failed to load receipts configuration: {error}"))?;
+    if raw.is_null() {
+        raw = Value::Object(Map::new());
+    }
+    desugar_corpus_layout(&mut raw)?;
+    let config: Config =
+        serde_json::from_value(raw).context("failed to deserialize receipts configuration")?;
     validate(&config)?;
     let root = resolve_root(sources.project_file.as_deref(), start)?;
     let config_file = sources
@@ -122,22 +157,57 @@ fn to_utf8(path: &Path) -> Result<Utf8PathBuf> {
         .map_err(|value| anyhow!("path is not valid UTF-8: {}", value.display()))
 }
 
+/// Rewrite the single-source `corpus.markdown`/`corpus.pdf` shorthand into the
+/// general `corpus.sources` map.
+fn desugar_corpus_layout(value: &mut Value) -> Result<()> {
+    let Some(corpus) = value.get_mut("corpus").and_then(Value::as_object_mut) else {
+        return Ok(());
+    };
+    let has_bare = corpus.contains_key("markdown") || corpus.contains_key("pdf");
+    if !has_bare {
+        return Ok(());
+    }
+    if corpus.contains_key("sources") {
+        bail!("corpus must declare either markdown/pdf or sources, not both");
+    }
+    let defaults = SourceTemplates::default();
+    let markdown = corpus.remove("markdown").unwrap_or_else(|| {
+        defaults
+            .markdown
+            .into_iter()
+            .map(Value::String)
+            .collect::<Vec<_>>()
+            .into()
+    });
+    let pdf = corpus.remove("pdf").unwrap_or(Value::String(defaults.pdf));
+    let mut templates = Map::new();
+    templates.insert("markdown".to_owned(), markdown);
+    templates.insert("pdf".to_owned(), pdf);
+    let mut sources = Map::new();
+    sources.insert(
+        crate::evidence::DEFAULT_SOURCE.to_owned(),
+        Value::Object(templates),
+    );
+    corpus.insert("sources".to_owned(), Value::Object(sources));
+    Ok(())
+}
+
 /// Reject templates that could escape the corpus root.
 fn validate(config: &Config) -> Result<()> {
-    if config.corpus.markdown.is_empty() {
-        bail!("corpus.markdown must list at least one template");
+    validate_template(&config.corpus.summaries)?;
+    if config.corpus.sources.is_empty() {
+        bail!("corpus.sources must declare at least one source");
     }
-    let mut templates = vec![&config.corpus.summaries, &config.corpus.pdf];
-    templates.extend(&config.corpus.markdown);
-    for template in templates {
-        if !template.contains("{id}") {
-            bail!("corpus template {template:?} must contain {{id}}");
+    for (name, templates) in &config.corpus.sources {
+        if !crate::evidence::validate_source_name(name) {
+            bail!("corpus source name {name:?} is not a valid path component");
         }
-        if Path::new(template.as_str()).is_absolute() {
-            bail!("corpus template {template:?} must be relative to the corpus root");
+        if templates.markdown.is_empty() {
+            bail!("corpus source {name:?} must list at least one markdown template");
         }
-        if template.split('/').any(|segment| segment == "..") {
-            bail!("corpus template {template:?} must not contain ..");
+        validate_template(&templates.pdf)?;
+        for template in &templates.markdown {
+            validate_template(template)?;
         }
     }
     if config.pdf.ocr.dpi == 0 {
@@ -150,6 +220,19 @@ fn validate(config: &Config) -> Result<()> {
         bail!("pdf.ocr.page_segmentation_mode must be 0–13");
     }
     config.terms.validate()?;
+    Ok(())
+}
+
+fn validate_template(template: &str) -> Result<()> {
+    if !template.contains("{id}") {
+        bail!("corpus template {template:?} must contain {{id}}");
+    }
+    if Path::new(template).is_absolute() {
+        bail!("corpus template {template:?} must be relative to the corpus root");
+    }
+    if template.split('/').any(|segment| segment == "..") {
+        bail!("corpus template {template:?} must not contain ..");
+    }
     Ok(())
 }
 

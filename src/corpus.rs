@@ -2,9 +2,10 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 
-use crate::config::{self, CorpusLayout, Discovered};
+use crate::config::{self, CorpusLayout, Discovered, SourceTemplates};
+use crate::evidence::DEFAULT_SOURCE;
 
 /// A resolved corpus: root directory, layout templates, and cache root.
 #[derive(Debug, Clone)]
@@ -101,10 +102,16 @@ impl Corpus {
         Ok(self.root.join(render(&self.layout.summaries, id)))
     }
 
+    /// Source names this corpus declares templates for.
+    #[must_use]
+    pub fn source_names(&self) -> Vec<String> {
+        self.layout.sources.keys().cloned().collect()
+    }
+
     pub fn markdown_candidates(&self, id: &str) -> Result<Vec<PathBuf>> {
         validate_id(id)?;
         Ok(self
-            .layout
+            .templates(DEFAULT_SOURCE)?
             .markdown
             .iter()
             .map(|template| self.root.join(render(template, id)))
@@ -113,7 +120,16 @@ impl Corpus {
 
     pub fn pdf_path(&self, id: &str) -> Result<PathBuf> {
         validate_id(id)?;
-        Ok(self.root.join(render(&self.layout.pdf, id)))
+        Ok(self
+            .root
+            .join(render(&self.templates(DEFAULT_SOURCE)?.pdf, id)))
+    }
+
+    fn templates(&self, source: &str) -> Result<&SourceTemplates> {
+        self.layout
+            .sources
+            .get(source)
+            .with_context(|| format!("corpus declares no templates for source {source:?}"))
     }
 }
 

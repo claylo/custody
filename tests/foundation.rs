@@ -11,6 +11,17 @@ fn write_config(dir: &std::path::Path, body: &str) {
     fs::write(dir.join("receipts.yaml"), body).unwrap();
 }
 
+const TWO_SOURCE_CONFIG: &str = concat!(
+    "cache:\n  root: \"c\"\ncorpus:\n",
+    "  sources:\n",
+    "    default:\n",
+    "      markdown:\n        - \"md/{id}.md\"\n",
+    "      pdf: \"pdfs/{id}.pdf\"\n",
+    "    supplement:\n",
+    "      markdown:\n        - \"md/{id}-supp.md\"\n",
+    "      pdf: \"pdfs/{id}-supp.pdf\"\n",
+);
+
 #[test]
 fn collapses_unicode_whitespace_without_rewriting_content() {
     assert_eq!(normalize("  A\u{00a0}\tB – ﬁ  "), "A B – ﬁ");
@@ -149,6 +160,80 @@ fn rejects_templates_that_escape_the_corpus() {
 fn rejects_templates_without_an_id_placeholder() {
     let dir = tempfile::tempdir().unwrap();
     write_config(dir.path(), "corpus:\n  pdf: \"pdfs/fixed.pdf\"\n");
+    assert!(Corpus::discover_from(dir.path(), None).is_err());
+}
+
+#[test]
+fn desugars_bare_corpus_layout_into_sources_default() {
+    let dir = tempfile::tempdir().unwrap();
+    write_config(
+        dir.path(),
+        "cache:\n  root: \"c\"\ncorpus:\n  markdown:\n    - \"docs/{id}.md\"\n  pdf: \"files/{id}.pdf\"\n",
+    );
+    let corpus = Corpus::discover_from(dir.path(), None).unwrap();
+    let root = corpus.root().to_path_buf();
+
+    assert_eq!(corpus.source_names(), vec!["default"]);
+    assert_eq!(
+        corpus.markdown_candidates("smith-2019").unwrap(),
+        vec![root.join("docs/smith-2019.md")]
+    );
+    assert_eq!(
+        corpus.pdf_path("smith-2019").unwrap(),
+        root.join("files/smith-2019.pdf")
+    );
+}
+
+#[test]
+fn parses_explicit_corpus_sources() {
+    let dir = tempfile::tempdir().unwrap();
+    write_config(dir.path(), TWO_SOURCE_CONFIG);
+    let corpus = Corpus::discover_from(dir.path(), None).unwrap();
+
+    let mut sources = corpus.source_names();
+    sources.sort();
+    assert_eq!(sources, vec!["default", "supplement"]);
+}
+
+#[test]
+fn rejects_conflicting_corpus_source_form() {
+    let dir = tempfile::tempdir().unwrap();
+    write_config(
+        dir.path(),
+        concat!(
+            "cache:\n  root: \"c\"\ncorpus:\n",
+            "  markdown:\n    - \"md/{id}.md\"\n",
+            "  pdf: \"pdfs/{id}.pdf\"\n",
+            "  sources:\n    default:\n      markdown:\n        - \"x/{id}.md\"\n      pdf: \"x/{id}.pdf\"\n",
+        ),
+    );
+    assert!(Corpus::discover_from(dir.path(), None).is_err());
+}
+
+#[test]
+fn rejects_an_explicit_source_missing_a_template() {
+    let dir = tempfile::tempdir().unwrap();
+    write_config(
+        dir.path(),
+        concat!(
+            "cache:\n  root: \"c\"\ncorpus:\n  sources:\n",
+            "    default:\n      markdown:\n        - \"md/{id}.md\"\n      pdf: \"pdfs/{id}.pdf\"\n",
+            "    supplement:\n      markdown:\n        - \"md/{id}-supp.md\"\n",
+        ),
+    );
+    assert!(Corpus::discover_from(dir.path(), None).is_err());
+}
+
+#[test]
+fn rejects_source_names_that_are_not_path_components() {
+    let dir = tempfile::tempdir().unwrap();
+    write_config(
+        dir.path(),
+        concat!(
+            "cache:\n  root: \"c\"\ncorpus:\n  sources:\n",
+            "    \"../escape\":\n      markdown:\n        - \"md/{id}.md\"\n      pdf: \"pdfs/{id}.pdf\"\n",
+        ),
+    );
     assert!(Corpus::discover_from(dir.path(), None).is_err());
 }
 
