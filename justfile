@@ -39,6 +39,8 @@ doc:
 
 check: fmt clippy deny test doc-test doc
 
+ci: check
+
 # Check for outdated dependencies (root only, no transitive noise)
 outdated:
     cargo outdated --root-deps-only

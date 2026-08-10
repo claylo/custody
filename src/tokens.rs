@@ -53,9 +53,30 @@ pub fn is_covered(text: &str, token: &str) -> bool {
 }
 
 /// Case-insensitive [`is_covered`], for number words.
+///
+/// Avoids allocating lowercase copies by scanning ASCII bytes directly.
 #[must_use]
 pub fn is_covered_case_insensitive(text: &str, token: &str) -> bool {
-    is_covered(&text.to_lowercase(), &token.to_lowercase())
+    if token.is_empty() {
+        return false;
+    }
+    let text_bytes = text.as_bytes();
+    let token_bytes = token.as_bytes();
+    let token_len = token_bytes.len();
+    if token_len > text_bytes.len() {
+        return false;
+    }
+    for start in 0..=(text_bytes.len() - token_len) {
+        if text_bytes[start..(start + token_len)].eq_ignore_ascii_case(token_bytes) {
+            let before_ok = start == 0 || !text_bytes[start - 1].is_ascii_alphanumeric();
+            let after = start + token_len;
+            let after_ok = after >= text_bytes.len() || !text_bytes[after].is_ascii_alphanumeric();
+            if before_ok && after_ok {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Whether `token` is one of the recognized number words.

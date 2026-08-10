@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::evidence::{ClaimEvidence, Evidence, EvidenceIssue, Severity};
 use crate::hash::sha256_bytes;
 use crate::normalize::normalize;
+use crate::terms::Terms;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -93,6 +94,7 @@ pub fn validate_review(
     claims: &[String],
     evidence: Option<&Evidence>,
     require_review: bool,
+    terms: &Terms,
 ) -> Vec<EvidenceIssue> {
     let mut issues = Vec::new();
     let mut reviewed: BTreeSet<usize> = BTreeSet::new();
@@ -107,9 +109,11 @@ pub fn validate_review(
                 "unknown_review_claim",
                 Severity::Error,
                 format!(
-                    "review entry references claim {} but only {} claims exist",
+                    "review entry references {} {} but only {} {} exist",
+                    terms.claim,
                     entry.claim,
-                    claims.len()
+                    claims.len(),
+                    terms.claims
                 ),
                 Some(entry.claim),
             ));
@@ -120,7 +124,7 @@ pub fn validate_review(
             issues.push(issue(
                 "duplicate_review_claim",
                 Severity::Error,
-                format!("duplicate review entry for claim {}", entry.claim),
+                format!("duplicate review entry for {} {}", terms.claim, entry.claim),
                 Some(entry.claim),
             ));
             continue;
@@ -132,8 +136,8 @@ pub fn validate_review(
                 "stale_review_claim",
                 Severity::Error,
                 format!(
-                    "review claim_sha256 is stale for claim {}: expected {expected_claim_hash}, found {}",
-                    entry.claim, entry.claim_sha256
+                    "review {}_sha256 is stale for {} {}: expected {expected_claim_hash}, found {}",
+                    terms.claim, terms.claim, entry.claim, entry.claim_sha256
                 ),
                 Some(entry.claim),
             ));
@@ -146,8 +150,8 @@ pub fn validate_review(
                     "stale_review_evidence",
                     Severity::Error,
                     format!(
-                        "review evidence_sha256 is stale for claim {}: expected {expected_evidence_hash}, found {}",
-                        entry.claim, entry.evidence_sha256
+                        "review evidence_sha256 is stale for {} {}: expected {expected_evidence_hash}, found {}",
+                        terms.claim, entry.claim, entry.evidence_sha256
                     ),
                     Some(entry.claim),
                 ));
@@ -161,7 +165,7 @@ pub fn validate_review(
                 issues.push(issue(
                     "missing_review",
                     Severity::Error,
-                    format!("claim {index} has no review entry"),
+                    format!("{} {index} has no review entry", terms.claim),
                     Some(index),
                 ));
             }
@@ -173,8 +177,8 @@ pub fn validate_review(
                     "unsupported_verdict",
                     Severity::Error,
                     format!(
-                        "claim {} verdict is {:?}, not supported",
-                        entry.claim, entry.verdict
+                        "{} {} verdict is {:?}, not supported",
+                        terms.claim, entry.claim, entry.verdict
                     ),
                     Some(entry.claim),
                 ));

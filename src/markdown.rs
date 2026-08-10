@@ -58,6 +58,7 @@ pub fn parse_units(source: &str) -> Vec<MarkdownUnit> {
         | Options::ENABLE_TASKLISTS
         | Options::ENABLE_MATH;
     let parser = Parser::new_ext(source, options).into_offset_iter();
+    let line_starts = build_line_starts(source);
     let mut units = Vec::new();
     let mut active: Option<UnitBuilder> = None;
     let mut item_depth = 0_usize;
@@ -103,10 +104,10 @@ pub fn parse_units(source: &str) -> Vec<MarkdownUnit> {
             },
             Event::End(tag) => match tag {
                 TagEnd::Paragraph | TagEnd::Heading(_) | TagEnd::TableCell | TagEnd::CodeBlock => {
-                    finish_unit(source, &mut active, &mut units, &mut heading_stack);
+                    finish_unit(&line_starts, &mut active, &mut units, &mut heading_stack);
                 }
                 TagEnd::Item => {
-                    finish_unit(source, &mut active, &mut units, &mut heading_stack);
+                    finish_unit(&line_starts, &mut active, &mut units, &mut heading_stack);
                     item_depth = item_depth.saturating_sub(1);
                 }
                 TagEnd::BlockQuote(_) => {
@@ -154,7 +155,7 @@ pub fn parse_units(source: &str) -> Vec<MarkdownUnit> {
         }
     }
 
-    finish_unit(source, &mut active, &mut units, &mut heading_stack);
+    finish_unit(&line_starts, &mut active, &mut units, &mut heading_stack);
     units
 }
 
@@ -201,7 +202,7 @@ impl UnitBuilder {
 }
 
 fn finish_unit(
-    source: &str,
+    line_starts: &[usize],
     active: &mut Option<UnitBuilder>,
     units: &mut Vec<MarkdownUnit>,
     heading_stack: &mut Vec<(u8, String)>,
@@ -213,7 +214,7 @@ fn finish_unit(
     if text.is_empty() {
         return;
     }
-    let (line, column) = line_column(source, builder.start);
+    let (line, column) = line_column_from_index(line_starts, builder.start);
     let section: Vec<String> = heading_stack
         .iter()
         .map(|(_, heading)| heading.clone())
@@ -233,14 +234,21 @@ fn finish_unit(
     });
 }
 
-fn line_column(source: &str, offset: usize) -> (usize, usize) {
-    let prefix = &source[..offset.min(source.len())];
-    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
-    let column = prefix
-        .rsplit_once('\n')
-        .map_or(prefix, |(_, tail)| tail)
-        .chars()
-        .count()
-        + 1;
-    (line, column)
+fn build_line_starts(source: &str) -> Vec<usize> {
+    let mut starts = vec![0];
+    for (i, byte) in source.bytes().enumerate() {
+        if byte == b'\n' {
+            starts.push(i + 1);
+        }
+    }
+    starts
+}
+
+fn line_column_from_index(line_starts: &[usize], offset: usize) -> (usize, usize) {
+    let line_index = line_starts
+        .partition_point(|&start| start <= offset)
+        .saturating_sub(1);
+    let line_start = line_starts[line_index];
+    let column = offset.saturating_sub(line_start) + 1;
+    (line_index + 1, column)
 }

@@ -7,6 +7,7 @@ use receipts::evidence::{
 use receipts::hash::sha256_bytes;
 use receipts::markdown::UnitKind;
 use receipts::review::{Review, ReviewEntry, Verdict, evidence_sha256, validate_review};
+use receipts::terms::Terms;
 
 fn test_locator(exact: &str, page: usize) -> Locator {
     Locator {
@@ -179,7 +180,7 @@ fn valid_review_produces_no_issues() {
             .map(|(i, _)| review_entry_for(i, &claims, Some(&evidence)))
             .collect(),
     };
-    let issues = validate_review(&review, &claims, Some(&evidence), false);
+    let issues = validate_review(&review, &claims, Some(&evidence), false, &Terms::default());
     assert!(issues.is_empty(), "{issues:?}");
 }
 
@@ -192,7 +193,7 @@ fn unknown_review_claim_is_reported() {
     let review = Review {
         claims: vec![entry],
     };
-    let issues = validate_review(&review, &claims, Some(&evidence), false);
+    let issues = validate_review(&review, &claims, Some(&evidence), false, &Terms::default());
     assert!(
         issues.iter().any(|i| i.code == "unknown_review_claim"),
         "{issues:?}"
@@ -207,7 +208,7 @@ fn duplicate_review_claim_is_reported() {
     let review = Review {
         claims: vec![entry.clone(), entry],
     };
-    let issues = validate_review(&review, &claims, Some(&evidence), false);
+    let issues = validate_review(&review, &claims, Some(&evidence), false, &Terms::default());
     assert!(
         issues.iter().any(|i| i.code == "duplicate_review_claim"),
         "{issues:?}"
@@ -223,7 +224,7 @@ fn stale_review_claim_is_reported() {
     let review = Review {
         claims: vec![entry],
     };
-    let issues = validate_review(&review, &claims, Some(&evidence), false);
+    let issues = validate_review(&review, &claims, Some(&evidence), false, &Terms::default());
     assert!(
         issues.iter().any(|i| i.code == "stale_review_claim"),
         "{issues:?}"
@@ -239,7 +240,7 @@ fn stale_review_evidence_is_reported() {
     let review = Review {
         claims: vec![entry],
     };
-    let issues = validate_review(&review, &claims, Some(&evidence), false);
+    let issues = validate_review(&review, &claims, Some(&evidence), false, &Terms::default());
     assert!(
         issues.iter().any(|i| i.code == "stale_review_evidence"),
         "{issues:?}"
@@ -253,13 +254,13 @@ fn missing_review_reported_only_with_require_review() {
     let review = Review {
         claims: vec![review_entry_for(0, &claims, Some(&evidence))],
     };
-    let without = validate_review(&review, &claims, Some(&evidence), false);
+    let without = validate_review(&review, &claims, Some(&evidence), false, &Terms::default());
     assert!(
         !without.iter().any(|i| i.code == "missing_review"),
         "{without:?}"
     );
 
-    let with = validate_review(&review, &claims, Some(&evidence), true);
+    let with = validate_review(&review, &claims, Some(&evidence), true, &Terms::default());
     assert!(with.iter().any(|i| i.code == "missing_review"), "{with:?}");
 }
 
@@ -273,13 +274,13 @@ fn unsupported_verdict_reported_only_with_require_review() {
         claims: vec![entry],
     };
 
-    let without = validate_review(&review, &claims, Some(&evidence), false);
+    let without = validate_review(&review, &claims, Some(&evidence), false, &Terms::default());
     assert!(
         !without.iter().any(|i| i.code == "unsupported_verdict"),
         "{without:?}"
     );
 
-    let with = validate_review(&review, &claims, Some(&evidence), true);
+    let with = validate_review(&review, &claims, Some(&evidence), true, &Terms::default());
     assert!(
         with.iter().any(|i| i.code == "unsupported_verdict"),
         "{with:?}"
@@ -296,7 +297,7 @@ fn partial_verdict_reported_under_require_review() {
         claims: vec![entry],
     };
 
-    let issues = validate_review(&review, &claims, Some(&evidence), true);
+    let issues = validate_review(&review, &claims, Some(&evidence), true, &Terms::default());
     assert!(
         issues.iter().any(|i| i.code == "unsupported_verdict"),
         "{issues:?}"
@@ -313,7 +314,7 @@ fn unclear_verdict_reported_under_require_review() {
         claims: vec![entry],
     };
 
-    let issues = validate_review(&review, &claims, Some(&evidence), true);
+    let issues = validate_review(&review, &claims, Some(&evidence), true, &Terms::default());
     assert!(
         issues.iter().any(|i| i.code == "unsupported_verdict"),
         "{issues:?}"

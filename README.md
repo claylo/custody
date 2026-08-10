@@ -337,9 +337,9 @@ be regenerated from the hashed PDF.
 ## Development
 
 ```bash
-just check   # fmt, clippy, build
-just test    # full suite
-just ci      # both
+just check   # fmt, clippy, deny, test, doc-test, doc
+just test    # test suite
+just ci      # alias for check
 just doctor  # probe tools
 ```
 

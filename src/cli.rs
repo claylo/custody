@@ -442,34 +442,22 @@ fn doctor(corpus: &Corpus, json: bool, quiet: bool) -> Result<()> {
     let ocr = corpus.ocr_config();
     let tools = PdfTools::new(corpus.cache_root().to_path_buf(), ocr);
     let ocr_dpi = u16::try_from(ocr.dpi).unwrap_or(u16::MAX);
-    let mut checks = vec![
-        ("corpus", true, corpus.root().display().to_string()),
-        (
-            "config",
-            true,
-            corpus
-                .config_file()
-                .map_or_else(|| "defaults".to_owned(), |path| path.display().to_string()),
-        ),
-        match tools.mutool.version() {
-            Ok(version) => ("mutool", true, version),
-            Err(error) => ("mutool", false, error.to_string()),
-        },
-        match tools.tesseract.version() {
-            Ok(version) => ("tesseract", true, version),
-            Err(error) => ("tesseract", false, error.to_string()),
-        },
-        (
-            "native profile",
-            true,
-            crate::pdf::mutool::PROFILE_NAME.to_owned(),
-        ),
-        (
-            "OCR profile",
-            true,
-            crate::pdf::tesseract::profile_name(&ocr.lang, ocr_dpi),
-        ),
-    ];
+
+    let corpus_value = corpus.root().display().to_string();
+    let config_value = corpus
+        .config_file()
+        .map_or_else(|| "defaults".to_owned(), |path| path.display().to_string());
+    let (mutool_ok, mutool_value) = match tools.mutool.version() {
+        Ok(version) => (true, version),
+        Err(error) => (false, error.to_string()),
+    };
+    let (tesseract_ok, tesseract_value) = match tools.tesseract.version() {
+        Ok(version) => (true, version),
+        Err(error) => (false, error.to_string()),
+    };
+    let native_profile_value = crate::pdf::mutool::PROFILE_NAME.to_owned();
+    let ocr_profile_value = crate::pdf::tesseract::profile_name(&ocr.lang, ocr_dpi);
+
     fs::create_dir_all(tools.cache.root()).with_context(|| {
         format!(
             "failed to create runtime cache {}",
@@ -480,21 +468,40 @@ fn doctor(corpus: &Corpus, json: bool, quiet: bool) -> Result<()> {
         .cache
         .root()
         .join(format!(".doctor-{}", std::process::id()));
-    let cache_check =
+    let (cache_ok, cache_value) =
         match fs::write(&probe, b"receipts doctor").and_then(|()| fs::remove_file(&probe)) {
-            Ok(()) => ("cache", true, tools.cache.root().display().to_string()),
-            Err(error) => ("cache", false, error.to_string()),
+            Ok(()) => (true, tools.cache.root().display().to_string()),
+            Err(error) => (false, error.to_string()),
         };
-    checks.push(cache_check);
+
+    let all_ok = mutool_ok && tesseract_ok && cache_ok;
+    let checks = [
+        ("corpus", true, &corpus_value),
+        ("config", true, &config_value),
+        ("mutool", mutool_ok, &mutool_value),
+        ("tesseract", tesseract_ok, &tesseract_value),
+        ("native profile", true, &native_profile_value),
+        ("OCR profile", true, &ocr_profile_value),
+        ("cache", cache_ok, &cache_value),
+    ];
 
     if json {
-        print_json(&checks)?;
+        let report = serde_json::json!({
+            "corpus": corpus_value,
+            "config": config_value,
+            "mutool": mutool_value,
+            "tesseract": tesseract_value,
+            "native_profile": native_profile_value,
+            "ocr_profile": ocr_profile_value,
+            "cache": cache_value,
+        });
+        print_json(&report)?;
     } else if !quiet {
         for (name, valid, detail) in &checks {
             println!("{name}: {} ({detail})", if *valid { "ok" } else { "error" });
         }
     }
-    if checks.iter().any(|(_, valid, _)| !valid) {
+    if !all_ok {
         bail!("doctor found unavailable requirements");
     }
     Ok(())
@@ -839,6 +846,7 @@ fn propose_cmd(corpus: &Corpus, args: &ProposeArgs, json: bool, quiet: bool) -> 
     };
     let tools = PdfTools::new(corpus.cache_root().to_path_buf(), corpus.ocr_config());
 
+    let mut reports = Vec::new();
     for id in &ids {
         let summary = read_summary(corpus, id)?;
         if summary.id != *id {
@@ -850,10 +858,16 @@ fn propose_cmd(corpus: &Corpus, args: &ProposeArgs, json: bool, quiet: bool) -> 
         }
         let report =
             crate::propose::propose_document(corpus, &summary, &tools, args.candidates, args.all)?;
-        if json {
-            print_json(&report)?;
-        } else if !quiet {
+        if !json && !quiet {
             print_propose_human(&report, &summary, corpus.terms());
+        }
+        reports.push(report);
+    }
+    if json {
+        if reports.len() == 1 {
+            print_json(&reports.into_iter().next().unwrap())?;
+        } else {
+            print_json(&serde_json::json!({ "summaries": reports }))?;
         }
     }
     Ok(())

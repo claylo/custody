@@ -245,8 +245,16 @@ pub fn ocr_page(
         cache.store(&stored_manifest, &tsv)?;
         Ok::<_, anyhow::Error>(tsv)
     })();
-    let _ = fs::remove_file(&initial);
-    let _ = fs::remove_file(&rotated);
+    if let Err(error) = fs::remove_file(&initial)
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        eprintln!("warning: failed to remove {}: {error}", initial.display());
+    }
+    if let Err(error) = fs::remove_file(&rotated)
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        eprintln!("warning: failed to remove {}: {error}", rotated.display());
+    }
     let tsv = result?;
     extracted_page(page, &tsv)
 }
@@ -270,6 +278,10 @@ pub fn parse_tsv(source: &str) -> Result<ParsedTsv> {
     let mut confidences = Vec::new();
     let mut spans = Vec::new();
 
+    let geo_indexes: Option<[usize; 4]> = match geometry_indexes {
+        [Some(a), Some(b), Some(c), Some(d)] => Some([a, b, c, d]),
+        _ => None,
+    };
     for line in lines {
         let fields: Vec<_> = line.split('\t').collect();
         let Some(text) = fields.get(text_index).map(|value| value.trim()) else {
@@ -279,22 +291,14 @@ pub fn parse_tsv(source: &str) -> Result<ParsedTsv> {
             continue;
         }
         words.push(text);
-        let bbox = geometry_indexes
-            .iter()
-            .copied()
-            .collect::<Option<Vec<_>>>()
-            .and_then(|indexes| {
-                let values = indexes
-                    .into_iter()
-                    .map(|index| fields.get(index)?.parse::<f64>().ok())
-                    .collect::<Option<Vec<_>>>()?;
-                Some(PdfBbox {
-                    x: values[0],
-                    y: values[1],
-                    width: values[2],
-                    height: values[3],
-                })
-            });
+        let bbox = geo_indexes.and_then(|[li, ti, wi, hi]| {
+            Some(PdfBbox {
+                x: fields.get(li)?.parse::<f64>().ok()?,
+                y: fields.get(ti)?.parse::<f64>().ok()?,
+                width: fields.get(wi)?.parse::<f64>().ok()?,
+                height: fields.get(hi)?.parse::<f64>().ok()?,
+            })
+        });
         spans.push(TextSpan {
             text: text.to_owned(),
             bbox,

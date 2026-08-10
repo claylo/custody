@@ -81,10 +81,20 @@ pub fn validate_document(
                 continue;
             }
         };
-        let markdown_path = markdown_candidates
+        let Some(markdown_path) = markdown_candidates
             .iter()
             .find(|path| path.is_file())
-            .unwrap_or(&markdown_candidates[0]);
+            .or_else(|| markdown_candidates.first())
+        else {
+            issues.push(issue(
+                "empty_markdown_candidates",
+                Severity::Error,
+                format!("no markdown template candidates for source {source_name:?}"),
+                None,
+                None,
+            ));
+            continue;
+        };
         let pdf_path = match corpus.pdf_path_for(&summary.id, source_name) {
             Ok(path) => path,
             Err(error) => {
@@ -334,13 +344,15 @@ pub fn validate_document(
             &summary.claims,
             summary.evidence.as_ref(),
             require_review,
+            corpus.terms(),
         ));
     } else if require_review {
+        let term = &corpus.terms().claim;
         for index in 0..summary.claims.len() {
             issues.push(issue(
                 "missing_review",
                 Severity::Error,
-                format!("claim {index} has no review entry"),
+                format!("{term} {index} has no review entry"),
                 Some(index),
                 None,
             ));
