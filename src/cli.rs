@@ -452,7 +452,7 @@ fn check(corpus: &Corpus, ids: &[String], json: bool, quiet: bool) -> Result<()>
             report.skipped += 1;
             continue;
         }
-        let validation = validate_document(corpus, &summary, &tools);
+        let validation = validate_document(corpus, &summary, &tools, false);
         if validation.is_valid() {
             report.valid += 1;
         } else {
@@ -526,7 +526,7 @@ fn audit(corpus: &Corpus, strict: bool, ids: &[String], json: bool, quiet: bool)
             });
             continue;
         }
-        let validation = validate_document(corpus, &summary, &tools);
+        let validation = validate_document(corpus, &summary, &tools, false);
         if validation.is_valid() {
             report.valid += 1;
             report.summaries.push(AuditSummary {

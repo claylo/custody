@@ -14,7 +14,7 @@ use crate::{
     markdown::{MarkdownUnit, exact_count, parse_units, resolve_unit},
     normalize::normalize,
     pdf::PdfTextProvider,
-    sections, tokens,
+    review, sections, tokens,
 };
 
 /// Complete accumulated result for one summary.
@@ -42,6 +42,7 @@ pub fn validate_document(
     corpus: &Corpus,
     summary: &SummaryDocument,
     provider: &impl PdfTextProvider,
+    require_review: bool,
 ) -> ValidationReport {
     let mut issues = summary.validate_evidence_structure(corpus.terms());
     let Some(evidence) = summary.evidence.as_ref() else {
@@ -324,6 +325,25 @@ pub fn validate_document(
                     None,
                 ));
             }
+        }
+    }
+
+    if let Some(rev) = summary.review.as_ref() {
+        issues.extend(review::validate_review(
+            rev,
+            &summary.claims,
+            summary.evidence.as_ref(),
+            require_review,
+        ));
+    } else if require_review {
+        for index in 0..summary.claims.len() {
+            issues.push(issue(
+                "missing_review",
+                Severity::Error,
+                format!("claim {index} has no review entry"),
+                Some(index),
+                None,
+            ));
         }
     }
 

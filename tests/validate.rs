@@ -15,6 +15,7 @@ use receipts::{
     hash::{sha256_bytes, sha256_file},
     markdown::{UnitKind, parse_units},
     pdf::{ExtractedPage, PdfTextProvider},
+    review::{Review, ReviewEntry, Verdict, evidence_sha256},
     validate::validate_document,
 };
 
@@ -89,6 +90,7 @@ fn locator_requires_one_match_in_each_source() {
                 "Supported once in the PDF.".to_owned(),
             )]),
         },
+        false,
     );
 
     assert!(report.issues.is_empty(), "{:?}", report.issues);
@@ -106,6 +108,7 @@ fn duplicate_pdf_matches_are_invalid() {
                 "Supported once, then Supported once again.".to_owned(),
             )]),
         },
+        false,
     );
 
     assert!(
@@ -129,6 +132,7 @@ fn locator_is_bounded_to_the_recorded_markdown_unit() {
         &FakePdf {
             pages: HashMap::from([((PdfBackend::MutoolNative, 1), "Supported once.".to_owned())]),
         },
+        false,
     );
 
     assert!(
@@ -144,7 +148,7 @@ fn source_hash_mismatch_is_reported() {
     let fixture = Fixture::new("Supported once.");
     let mut summary = fixture.summary("Supported once", PdfBackend::MutoolNative);
     default_pair(&mut summary).pdf.sha256 = "0".repeat(64);
-    let report = validate_document(&fixture.corpus, &summary, &FakePdf::default());
+    let report = validate_document(&fixture.corpus, &summary, &FakePdf::default(), false);
 
     assert!(
         report
@@ -186,6 +190,7 @@ fn actual_pdf_hash_not_recorded_hash_keys_ocr() {
         &fixture.corpus,
         &summary,
         &HashCheckingPdf { expected: actual },
+        false,
     );
 
     assert!(
@@ -216,6 +221,7 @@ fn ocr_disabled_rejects_an_ocr_backend_locator() {
         &FakePdf {
             pages: HashMap::from([((PdfBackend::TesseractOcr, 1), "Supported once.".to_owned())]),
         },
+        false,
     );
 
     assert!(!report.is_valid());
@@ -245,6 +251,7 @@ fn rejects_canonical_source_symlinks_that_escape_the_corpus() {
         &FakePdf {
             pages: HashMap::from([((PdfBackend::MutoolNative, 1), "Supported once.".to_owned())]),
         },
+        false,
     );
 
     assert!(
@@ -344,6 +351,7 @@ fn each_named_source_resolves_against_its_own_files() {
                 ),
             ]),
         },
+        false,
     );
 
     assert!(report.issues.is_empty(), "{:?}", report.issues);
@@ -366,6 +374,7 @@ fn a_source_without_corpus_templates_is_reported() {
         &FakePdf {
             pages: HashMap::from([((PdfBackend::MutoolNative, 1), "Supported once.".to_owned())]),
         },
+        false,
     );
 
     assert_eq!(
@@ -394,6 +403,7 @@ fn stale_section_is_reported_when_path_changes() {
         &FakePdf {
             pages: HashMap::from([((PdfBackend::MutoolNative, 1), "Supported once.".to_owned())]),
         },
+        false,
     );
 
     assert!(
@@ -420,6 +430,7 @@ fn matching_section_produces_no_issue() {
         &FakePdf {
             pages: HashMap::from([((PdfBackend::MutoolNative, 1), "Supported once.".to_owned())]),
         },
+        false,
     );
 
     assert!(report.issues.is_empty(), "{:?}", report.issues);
@@ -443,6 +454,7 @@ fn uncovered_token_is_reported_when_number_missing_from_locators() {
                 "The effect was 42.8% within tolerance.".to_owned(),
             )]),
         },
+        false,
     );
 
     let uncovered: Vec<_> = report
@@ -487,6 +499,7 @@ fn coverage_tokens_off_skips_token_check() {
                 "The finding text.".to_owned(),
             )]),
         },
+        false,
     );
 
     assert!(
@@ -520,6 +533,7 @@ fn coverage_tokens_warn_produces_warnings_not_errors() {
                 "The finding text.".to_owned(),
             )]),
         },
+        false,
     );
 
     let token_issues: Vec<_> = report
@@ -550,6 +564,7 @@ fn weak_section_only_fires_when_all_locators_are_weak() {
         &FakePdf {
             pages: HashMap::from([((PdfBackend::MutoolNative, 1), "Supported once.".to_owned())]),
         },
+        false,
     );
 
     let weak: Vec<_> = report
@@ -605,6 +620,7 @@ fn weak_section_does_not_fire_when_one_locator_is_not_weak() {
                 "First locator text. Second locator text.".to_owned(),
             )]),
         },
+        false,
     );
 
     assert!(
@@ -615,6 +631,100 @@ fn weak_section_does_not_fire_when_one_locator_is_not_weak() {
         "{:?}",
         report.issues
     );
+}
+
+#[test]
+fn stale_review_claim_detected_during_validation() {
+    let fixture = Fixture::new("Supported once.");
+    let mut summary = fixture.summary("Supported once", PdfBackend::MutoolNative);
+    let evidence = summary.evidence.as_ref().unwrap();
+    let ev_hash = evidence_sha256(&evidence.claims[0]);
+    summary.review = Some(Review {
+        claims: vec![ReviewEntry {
+            claim: 0,
+            claim_sha256: "0".repeat(64),
+            evidence_sha256: ev_hash,
+            verdict: Verdict::Supported,
+            reviewer: "test".to_owned(),
+            note: None,
+            at: None,
+        }],
+    });
+    let report = validate_document(
+        &fixture.corpus,
+        &summary,
+        &FakePdf {
+            pages: HashMap::from([((PdfBackend::MutoolNative, 1), "Supported once.".to_owned())]),
+        },
+        false,
+    );
+    assert!(
+        report.issues.iter().any(|i| i.code == "stale_review_claim"),
+        "{:?}",
+        report.issues
+    );
+}
+
+#[test]
+fn stale_review_evidence_detected_during_validation() {
+    let fixture = Fixture::new("Supported once.");
+    let mut summary = fixture.summary("Supported once", PdfBackend::MutoolNative);
+    let claim_hash = sha256_bytes(summary.claims[0].as_bytes());
+    summary.review = Some(Review {
+        claims: vec![ReviewEntry {
+            claim: 0,
+            claim_sha256: claim_hash,
+            evidence_sha256: "0".repeat(64),
+            verdict: Verdict::Supported,
+            reviewer: "test".to_owned(),
+            note: None,
+            at: None,
+        }],
+    });
+    let report = validate_document(
+        &fixture.corpus,
+        &summary,
+        &FakePdf {
+            pages: HashMap::from([((PdfBackend::MutoolNative, 1), "Supported once.".to_owned())]),
+        },
+        false,
+    );
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|i| i.code == "stale_review_evidence"),
+        "{:?}",
+        report.issues
+    );
+}
+
+#[test]
+fn valid_review_produces_no_issues_during_validation() {
+    let fixture = Fixture::new("Supported once.");
+    let mut summary = fixture.summary("Supported once", PdfBackend::MutoolNative);
+    let claim_hash = sha256_bytes(summary.claims[0].as_bytes());
+    let ev_hash = evidence_sha256(&summary.evidence.as_ref().unwrap().claims[0]);
+    summary.review = Some(Review {
+        claims: vec![ReviewEntry {
+            claim: 0,
+            claim_sha256: claim_hash,
+            evidence_sha256: ev_hash,
+            verdict: Verdict::Supported,
+            reviewer: "test".to_owned(),
+            note: None,
+            at: None,
+        }],
+    });
+    let report = validate_document(
+        &fixture.corpus,
+        &summary,
+        &FakePdf {
+            pages: HashMap::from([((PdfBackend::MutoolNative, 1), "Supported once.".to_owned())]),
+        },
+        false,
+    );
+    assert!(report.issues.is_empty(), "{:?}", report.issues);
 }
 
 fn weak_locator(exact: &str, line: usize) -> Locator {
