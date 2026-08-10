@@ -329,6 +329,22 @@ fn exposes_coverage_and_sections_config_from_corpus() {
     assert_eq!(corpus.sections_config().weak, ["Abstract", "References"]);
 }
 
+/// The YAML layer resolves a bare `off` to the boolean `false`, so this pins
+/// the spelling users actually write.
+#[test]
+fn accepts_unquoted_and_quoted_off_coverage_severity() {
+    for declared in ["off", "\"off\""] {
+        let dir = tempfile::tempdir().unwrap();
+        write_config(
+            dir.path(),
+            &format!("cache:\n  root: \"c\"\ncoverage:\n  tokens: {declared}\n"),
+        );
+        let corpus = Corpus::discover_from(dir.path(), None).unwrap();
+
+        assert_eq!(corpus.coverage_config().tokens, config::TokenSeverity::Off);
+    }
+}
+
 #[test]
 fn rejects_an_unknown_coverage_severity() {
     let dir = tempfile::tempdir().unwrap();

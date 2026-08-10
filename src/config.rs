@@ -111,13 +111,47 @@ impl Default for OcrConfig {
 }
 
 /// How a claim token that no locator covers is reported.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TokenSeverity {
     #[default]
     Error,
     Warn,
     Off,
+}
+
+// Hand-written so `tokens: off` works unquoted: the YAML layer resolves the
+// bare scalar `off` to the boolean `false` before serde ever sees a string.
+impl<'de> Deserialize<'de> for TokenSeverity {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+
+        match Value::deserialize(deserializer)? {
+            Value::String(name) => match name.as_str() {
+                "error" => Ok(Self::Error),
+                "warn" => Ok(Self::Warn),
+                "off" => Ok(Self::Off),
+                other => Err(D::Error::unknown_variant(other, &["error", "warn", "off"])),
+            },
+            Value::Bool(false) => Ok(Self::Off),
+            other => Err(D::Error::invalid_type(
+                unexpected(&other),
+                &"one of \"error\", \"warn\", or \"off\"",
+            )),
+        }
+    }
+}
+
+fn unexpected(value: &Value) -> serde::de::Unexpected<'_> {
+    use serde::de::Unexpected;
+    match value {
+        Value::Bool(value) => Unexpected::Bool(*value),
+        Value::Null => Unexpected::Unit,
+        Value::Number(_) => Unexpected::Other("number"),
+        Value::Array(_) => Unexpected::Seq,
+        Value::Object(_) => Unexpected::Map,
+        Value::String(value) => Unexpected::Str(value),
+    }
 }
 
 /// Which claim-token gaps are reported, and how loudly.
