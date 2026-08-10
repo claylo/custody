@@ -296,6 +296,35 @@ pub fn validate_document(
                 }
             }
         }
+
+        let weak_sections = &corpus.sections_config().weak;
+        if !weak_sections.is_empty() && !entry.locators.is_empty() {
+            let all_weak = entry.locators.iter().all(|loc| {
+                let Some(units) = source_units.get(loc.source.as_str()) else {
+                    return false;
+                };
+                // An unresolvable unit is already an error; don't judge weakness.
+                resolve_unit(
+                    units,
+                    loc.markdown.unit,
+                    loc.markdown.line,
+                    loc.markdown.column,
+                )
+                .is_ok_and(|unit| sections::is_weak_section(&unit.section, weak_sections))
+            });
+            if all_weak {
+                issues.push(issue(
+                    "weak_section_only",
+                    Severity::Warning,
+                    format!(
+                        "every locator for claim {} is under a weak section",
+                        entry.claim
+                    ),
+                    Some(entry.claim),
+                    None,
+                ));
+            }
+        }
     }
 
     ValidationReport {

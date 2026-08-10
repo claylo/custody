@@ -535,6 +535,92 @@ fn coverage_tokens_warn_produces_warnings_not_errors() {
     assert!(report.is_valid(), "warnings should not make report invalid");
 }
 
+#[test]
+fn weak_section_only_fires_when_all_locators_are_weak() {
+    let fixture = Fixture::with_config(
+        "# Limitations\n\nSupported once in the text.\n",
+        "cache:\n  root: \".cache/pdf-text\"\nsections:\n  weak:\n    - Limitations\n",
+    );
+    let summary = fixture.summary("Supported once", PdfBackend::MutoolNative);
+
+    let report = validate_document(
+        &fixture.corpus,
+        &summary,
+        &FakePdf {
+            pages: HashMap::from([((PdfBackend::MutoolNative, 1), "Supported once.".to_owned())]),
+        },
+    );
+
+    let weak: Vec<_> = report
+        .issues
+        .iter()
+        .filter(|issue| issue.code == "weak_section_only")
+        .collect();
+    assert_eq!(weak.len(), 1, "{:?}", report.issues);
+    assert_eq!(weak[0].severity, Severity::Warning);
+    assert!(
+        report.is_valid(),
+        "weak_section_only is a warning, not an error"
+    );
+}
+
+#[test]
+fn weak_section_does_not_fire_when_one_locator_is_not_weak() {
+    let fixture = Fixture::with_config(
+        "# Results\n\nFirst locator text.\n\n# Limitations\n\nSecond locator text.\n",
+        "cache:\n  root: \".cache/pdf-text\"\nsections:\n  weak:\n    - Limitations\n",
+    );
+    let claim = "A claim bound to literal source evidence.".to_owned();
+    let summary = SummaryDocument {
+        id: "smith-2019".to_owned(),
+        claims: vec![claim.clone()],
+        evidence: Some(Evidence {
+            sources: BTreeMap::from([(
+                DEFAULT_SOURCE.to_owned(),
+                source_pair(
+                    &fixture.corpus,
+                    "md/smith-2019/smith-2019.md",
+                    "pdfs/smith-2019.pdf",
+                ),
+            )]),
+            claims: vec![ClaimEvidence {
+                claim: 0,
+                claim_sha256: sha256_bytes(claim.as_bytes()),
+                locators: vec![
+                    weak_locator("First locator text", 3),
+                    weak_locator("Second locator text", 7),
+                ],
+            }],
+        }),
+    };
+
+    let report = validate_document(
+        &fixture.corpus,
+        &summary,
+        &FakePdf {
+            pages: HashMap::from([(
+                (PdfBackend::MutoolNative, 1),
+                "First locator text. Second locator text.".to_owned(),
+            )]),
+        },
+    );
+
+    assert!(
+        !report
+            .issues
+            .iter()
+            .any(|issue| issue.code == "weak_section_only"),
+        "{:?}",
+        report.issues
+    );
+}
+
+fn weak_locator(exact: &str, line: usize) -> Locator {
+    let mut locator = locator(DEFAULT_SOURCE, exact);
+    locator.markdown.line = line;
+    locator
+}
+
 fn source_pair(corpus: &Corpus, markdown: &str, pdf: &str) -> SourcePair {
     SourcePair {
         markdown: SourceRecord {

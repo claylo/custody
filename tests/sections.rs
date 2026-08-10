@@ -1,4 +1,35 @@
-use receipts::markdown::{UnitKind, parse_units};
+use receipts::{
+    markdown::{UnitKind, parse_units},
+    sections::is_weak_section,
+};
+
+fn weak(headings: &[&str]) -> bool {
+    let section: Vec<String> = headings.iter().map(|h| (*h).to_string()).collect();
+    is_weak_section(
+        &section,
+        &["Limitations".to_owned(), "Future Work".to_owned()],
+    )
+}
+
+#[test]
+fn weak_heading_matches_regardless_of_case_and_surrounding_text() {
+    assert!(weak(&["Limitations"]));
+    assert!(weak(&["5. Limitations"]));
+    assert!(weak(&["Limitations and Future Work"]));
+    assert!(weak(&["LIMITATIONS"]));
+    assert!(weak(&["future work"]));
+}
+
+#[test]
+fn any_element_of_the_path_can_be_weak() {
+    assert!(weak(&["Discussion", "Limitations"]));
+    assert!(!weak(&["Discussion", "Onset"]));
+}
+
+#[test]
+fn an_empty_weak_list_never_matches() {
+    assert!(!is_weak_section(&["Limitations".to_owned()], &[]));
+}
 
 #[test]
 fn paragraph_under_nested_headings_gets_full_path() {
