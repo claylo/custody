@@ -4,7 +4,10 @@ use std::{
     process::{Command, Output},
 };
 
+use receipts::evidence::{ClaimEvidence, Locator, MarkdownLocator, PdfBackend, PdfLocator};
 use receipts::hash::{sha256_bytes, sha256_file};
+use receipts::markdown::UnitKind;
+use receipts::review::evidence_sha256;
 
 fn receipts(corpus: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_receipts"))
@@ -453,6 +456,249 @@ const TEXT_PDF: &str = "%PDF-1.4\n\
     BT /F1 12 Tf 72 700 Td (The rate was 67.5% in the control group.) Tj ET\n\
     endstream\nendobj\n\
     trailer<</Root 1 0 R>>\n";
+
+fn fixture_evidence_sha256(exact: &str) -> String {
+    let entry = ClaimEvidence {
+        claim: 0,
+        claim_sha256: String::new(),
+        locators: vec![Locator {
+            source: "default".to_owned(),
+            exact: exact.to_owned(),
+            markdown: MarkdownLocator {
+                line: 1,
+                column: 1,
+                unit: UnitKind::Paragraph,
+                section: vec![],
+            },
+            pdf: PdfLocator {
+                page: 1,
+                backend: PdfBackend::MutoolNative,
+            },
+        }],
+    };
+    evidence_sha256(&entry)
+}
+
+#[test]
+fn require_review_fails_when_review_is_missing() {
+    let corpus = fixture_corpus();
+    let temp = corpus.path();
+    let claim = "A claim without evidence.";
+    let claim_sha = sha256_bytes(claim.as_bytes());
+    let md_sha = sha256_file(&temp.join("md/missing-evidence/missing-evidence.md")).unwrap();
+    let pdf_sha = sha256_file(&temp.join("pdfs/missing-evidence.pdf")).unwrap();
+    fs::write(
+        temp.join("summaries/missing-evidence.yaml"),
+        format!(
+            "id: missing-evidence
+claims:
+  - \"{claim}\"
+evidence:
+  markdown:
+    source: \"md/missing-evidence/missing-evidence.md\"
+    sha256: \"{md_sha}\"
+  pdf:
+    source: \"pdfs/missing-evidence.pdf\"
+    sha256: \"{pdf_sha}\"
+  claims:
+    - claim: 0
+      claim_sha256: \"{claim_sha}\"
+      locators:
+        - exact: \"A source.\"
+          markdown:
+            line: 1
+            column: 1
+            unit: paragraph
+          pdf:
+            page: 1
+            backend: mutool-native
+"
+        ),
+    )
+    .unwrap();
+
+    let output = receipts(temp, &["check", "--require-review", "missing-evidence"]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("missing_review"),
+        "should report missing review: {}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn require_review_passes_with_supported_verdict() {
+    let corpus = fixture_corpus();
+    let temp = corpus.path();
+    let claim = "A claim without evidence.";
+    let claim_sha = sha256_bytes(claim.as_bytes());
+    let exact = "The rate was 67.5% in the control group.";
+    fs::write(
+        temp.join("md/missing-evidence/missing-evidence.md"),
+        format!("{exact}\n"),
+    )
+    .unwrap();
+    fs::write(temp.join("pdfs/missing-evidence.pdf"), TEXT_PDF).unwrap();
+    let md_sha = sha256_file(&temp.join("md/missing-evidence/missing-evidence.md")).unwrap();
+    let pdf_sha = sha256_file(&temp.join("pdfs/missing-evidence.pdf")).unwrap();
+    let ev_sha = fixture_evidence_sha256(exact);
+
+    fs::write(
+        temp.join("summaries/missing-evidence.yaml"),
+        format!(
+            "id: missing-evidence
+claims:
+  - \"{claim}\"
+evidence:
+  markdown:
+    source: \"md/missing-evidence/missing-evidence.md\"
+    sha256: \"{md_sha}\"
+  pdf:
+    source: \"pdfs/missing-evidence.pdf\"
+    sha256: \"{pdf_sha}\"
+  claims:
+    - claim: 0
+      claim_sha256: \"{claim_sha}\"
+      locators:
+        - exact: \"{exact}\"
+          markdown:
+            line: 1
+            column: 1
+            unit: paragraph
+          pdf:
+            page: 1
+            backend: mutool-native
+review:
+  claims:
+    - claim: 0
+      claim_sha256: \"{claim_sha}\"
+      evidence_sha256: \"{ev_sha}\"
+      verdict: supported
+      reviewer: test-reviewer
+"
+        ),
+    )
+    .unwrap();
+
+    let output = receipts(temp, &["check", "--require-review", "missing-evidence"]);
+    assert!(
+        output.status.success(),
+        "should pass with supported review: {}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn require_review_fails_on_unsupported_verdict() {
+    let corpus = fixture_corpus();
+    let temp = corpus.path();
+    let claim = "A claim without evidence.";
+    let claim_sha = sha256_bytes(claim.as_bytes());
+    let md_sha = sha256_file(&temp.join("md/missing-evidence/missing-evidence.md")).unwrap();
+    let pdf_sha = sha256_file(&temp.join("pdfs/missing-evidence.pdf")).unwrap();
+    let ev_sha = fixture_evidence_sha256("A source.");
+
+    fs::write(
+        temp.join("summaries/missing-evidence.yaml"),
+        format!(
+            "id: missing-evidence
+claims:
+  - \"{claim}\"
+evidence:
+  markdown:
+    source: \"md/missing-evidence/missing-evidence.md\"
+    sha256: \"{md_sha}\"
+  pdf:
+    source: \"pdfs/missing-evidence.pdf\"
+    sha256: \"{pdf_sha}\"
+  claims:
+    - claim: 0
+      claim_sha256: \"{claim_sha}\"
+      locators:
+        - exact: \"A source.\"
+          markdown:
+            line: 1
+            column: 1
+            unit: paragraph
+          pdf:
+            page: 1
+            backend: mutool-native
+review:
+  claims:
+    - claim: 0
+      claim_sha256: \"{claim_sha}\"
+      evidence_sha256: \"{ev_sha}\"
+      verdict: unsupported
+      reviewer: test-reviewer
+"
+        ),
+    )
+    .unwrap();
+
+    let output = receipts(temp, &["check", "--require-review", "missing-evidence"]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("unsupported_verdict"),
+        "should report unsupported verdict: {}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn check_detects_stale_review_evidence() {
+    let corpus = fixture_corpus();
+    let temp = corpus.path();
+    let claim = "A claim without evidence.";
+    let claim_sha = sha256_bytes(claim.as_bytes());
+    let md_sha = sha256_file(&temp.join("md/missing-evidence/missing-evidence.md")).unwrap();
+    let pdf_sha = sha256_file(&temp.join("pdfs/missing-evidence.pdf")).unwrap();
+
+    fs::write(
+        temp.join("summaries/missing-evidence.yaml"),
+        format!(
+            "id: missing-evidence
+claims:
+  - \"{claim}\"
+evidence:
+  markdown:
+    source: \"md/missing-evidence/missing-evidence.md\"
+    sha256: \"{md_sha}\"
+  pdf:
+    source: \"pdfs/missing-evidence.pdf\"
+    sha256: \"{pdf_sha}\"
+  claims:
+    - claim: 0
+      claim_sha256: \"{claim_sha}\"
+      locators:
+        - exact: \"A source.\"
+          markdown:
+            line: 1
+            column: 1
+            unit: paragraph
+          pdf:
+            page: 1
+            backend: mutool-native
+review:
+  claims:
+    - claim: 0
+      claim_sha256: \"{claim_sha}\"
+      evidence_sha256: \"{stale}\"
+      verdict: supported
+      reviewer: test-reviewer
+",
+            stale = "0".repeat(64)
+        ),
+    )
+    .unwrap();
+
+    let output = receipts(temp, &["check", "missing-evidence"]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("stale_review_evidence"),
+        "should detect stale review evidence: {}",
+        stderr(&output)
+    );
+}
 
 fn stdout(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
