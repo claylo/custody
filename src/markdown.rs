@@ -23,6 +23,8 @@ pub struct MarkdownUnit {
     pub text: String,
     pub line: usize,
     pub column: usize,
+    /// Texts of the headings this unit sits under, outermost first.
+    pub section: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -30,6 +32,7 @@ struct UnitBuilder {
     kind: UnitKind,
     text: String,
     start: usize,
+    heading_level: Option<u8>,
 }
 
 /// Parse Markdown into bounded evidence units.
@@ -46,6 +49,7 @@ pub fn parse_units(source: &str) -> Vec<MarkdownUnit> {
     let mut blockquote_depth = 0_usize;
     let mut image_depth = 0_usize;
     let mut html_block_depth = 0_usize;
+    let mut heading_stack: Vec<(u8, String)> = Vec::new();
 
     for (event, range) in parser {
         match event {
@@ -69,8 +73,10 @@ pub fn parse_units(source: &str) -> Vec<MarkdownUnit> {
                     };
                     active = Some(UnitBuilder::new(kind, range.start));
                 }
-                Tag::Heading { .. } if html_block_depth == 0 => {
-                    active = Some(UnitBuilder::new(UnitKind::Heading, range.start));
+                Tag::Heading { level, .. } if html_block_depth == 0 => {
+                    let mut builder = UnitBuilder::new(UnitKind::Heading, range.start);
+                    builder.heading_level = Some(level as u8);
+                    active = Some(builder);
                 }
                 Tag::TableCell if html_block_depth == 0 => {
                     active = Some(UnitBuilder::new(UnitKind::TableCell, range.start));
@@ -82,10 +88,10 @@ pub fn parse_units(source: &str) -> Vec<MarkdownUnit> {
             },
             Event::End(tag) => match tag {
                 TagEnd::Paragraph | TagEnd::Heading(_) | TagEnd::TableCell | TagEnd::CodeBlock => {
-                    finish_unit(source, &mut active, &mut units);
+                    finish_unit(source, &mut active, &mut units, &mut heading_stack);
                 }
                 TagEnd::Item => {
-                    finish_unit(source, &mut active, &mut units);
+                    finish_unit(source, &mut active, &mut units, &mut heading_stack);
                     item_depth = item_depth.saturating_sub(1);
                 }
                 TagEnd::BlockQuote(_) => {
@@ -133,7 +139,7 @@ pub fn parse_units(source: &str) -> Vec<MarkdownUnit> {
         }
     }
 
-    finish_unit(source, &mut active, &mut units);
+    finish_unit(source, &mut active, &mut units, &mut heading_stack);
     units
 }
 
@@ -174,11 +180,17 @@ impl UnitBuilder {
             kind,
             text: String::new(),
             start,
+            heading_level: None,
         }
     }
 }
 
-fn finish_unit(source: &str, active: &mut Option<UnitBuilder>, units: &mut Vec<MarkdownUnit>) {
+fn finish_unit(
+    source: &str,
+    active: &mut Option<UnitBuilder>,
+    units: &mut Vec<MarkdownUnit>,
+    heading_stack: &mut Vec<(u8, String)>,
+) {
     let Some(builder) = active.take() else {
         return;
     };
@@ -187,11 +199,22 @@ fn finish_unit(source: &str, active: &mut Option<UnitBuilder>, units: &mut Vec<M
         return;
     }
     let (line, column) = line_column(source, builder.start);
+    let section: Vec<String> = heading_stack
+        .iter()
+        .map(|(_, heading)| heading.clone())
+        .collect();
+    // A heading's own path is its ancestors, so record the path before it
+    // replaces every same-or-deeper level on the stack.
+    if let Some(level) = builder.heading_level {
+        heading_stack.retain(|(open, _)| *open < level);
+        heading_stack.push((level, text.clone()));
+    }
     units.push(MarkdownUnit {
         kind: builder.kind,
         text,
         line,
         column,
+        section,
     });
 }
 

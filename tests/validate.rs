@@ -400,6 +400,7 @@ fn locator(source: &str, exact: &str) -> Locator {
             line: 1,
             column: 1,
             unit: UnitKind::Paragraph,
+            section: Vec::new(),
         },
         pdf: PdfLocator {
             page: 1,
@@ -480,6 +481,7 @@ impl Fixture {
                             line: unit.line,
                             column: unit.column,
                             unit: UnitKind::Paragraph,
+                            section: Vec::new(),
                         },
                         pdf: PdfLocator { page: 1, backend },
                     }],

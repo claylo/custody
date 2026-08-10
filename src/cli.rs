@@ -325,6 +325,7 @@ fn locate(corpus: &Corpus, args: &LocateArgs, json: bool) -> Result<()> {
                     line: unit.line,
                     column: unit.column,
                     unit: unit.kind,
+                    section: Vec::new(),
                 },
                 pdf: PdfLocator { page, backend },
             }],

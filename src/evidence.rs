@@ -67,6 +67,8 @@ pub struct MarkdownLocator {
     pub line: usize,
     pub column: usize,
     pub unit: UnitKind,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub section: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

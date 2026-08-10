@@ -207,6 +207,7 @@ fn reports_unknown_and_unused_sources() {
                         line: 1,
                         column: 1,
                         unit: UnitKind::Paragraph,
+                        section: Vec::new(),
                     },
                     pdf: PdfLocator {
                         page: 1,
