@@ -5,11 +5,18 @@
 //! that holds them and the native PDF text, then ordered by a total comparison
 //! so the same corpus always yields the same suggestions.
 
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::fs;
+
+use anyhow::Result;
 use serde::Serialize;
 
-use crate::evidence::PdfBackend;
-use crate::markdown::UnitKind;
+use crate::corpus::Corpus;
+use crate::evidence::{PdfBackend, SummaryDocument};
+use crate::markdown::{MarkdownUnit, UnitKind, exact_count, parse_units};
 use crate::normalize::normalize;
+use crate::pdf::PdfTextProvider;
+use crate::tokens::{self, ExtractedTokens};
 
 /// Every claim considered for one summary, with its candidates.
 #[derive(Debug, Clone, Serialize)]
@@ -95,4 +102,208 @@ fn push_normalized(segment: &str, sentences: &mut Vec<String>) {
     if !normalized.is_empty() {
         sentences.push(normalized);
     }
+}
+
+/// Offer ranked candidate locators for the claims of one summary.
+///
+/// Claims that already carry locators are skipped unless `all_claims` is set,
+/// and each claim keeps at most `max_candidates` candidates, best first. Every
+/// source is read once; nothing is written.
+pub fn propose_document(
+    corpus: &Corpus,
+    summary: &SummaryDocument,
+    provider: &impl PdfTextProvider,
+    max_candidates: usize,
+    all_claims: bool,
+) -> Result<ProposalReport> {
+    let settled: BTreeSet<usize> = summary
+        .evidence
+        .as_ref()
+        .map(|evidence| {
+            evidence
+                .claims
+                .iter()
+                .filter(|entry| !entry.locators.is_empty())
+                .map(|entry| entry.claim)
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let mut source_units: BTreeMap<String, Vec<MarkdownUnit>> = BTreeMap::new();
+    let mut source_pages: BTreeMap<String, HashMap<usize, String>> = BTreeMap::new();
+
+    for source_name in corpus.source_names() {
+        let markdown_candidates = corpus.markdown_candidates_for(&summary.id, &source_name)?;
+        if let Some(path) = markdown_candidates.iter().find(|path| path.is_file())
+            && let Ok(markdown) = fs::read_to_string(path)
+        {
+            source_units.insert(source_name.clone(), parse_units(&markdown));
+        }
+
+        let pdf_path = corpus.pdf_path_for(&summary.id, &source_name)?;
+        if pdf_path.is_file()
+            && let Ok(pages) = provider.native_pages(&pdf_path, None)
+        {
+            source_pages.insert(
+                source_name,
+                pages
+                    .into_iter()
+                    .map(|page| (page.page, normalize(&page.text)))
+                    .collect(),
+            );
+        }
+    }
+
+    let mut claims = Vec::new();
+    for (index, claim_text) in summary.claims.iter().enumerate() {
+        if !all_claims && settled.contains(&index) {
+            continue;
+        }
+
+        let claim_tokens = tokens::extract(claim_text);
+        let mut candidates = Vec::new();
+        for (source_name, units) in &source_units {
+            let pages = source_pages.get(source_name);
+            for raw in generate_candidates(source_name, units, &claim_tokens) {
+                // A span the reader cannot find in the PDF is not evidence.
+                let Some(page) = pages.and_then(|pages| verify_pdf(pages, &raw.exact)) else {
+                    continue;
+                };
+                candidates.push(Candidate {
+                    source: raw.source,
+                    exact: raw.exact,
+                    coverage: CoverageScore {
+                        matched: raw.matched,
+                        required: claim_tokens.required.len(),
+                    },
+                    markdown: MarkdownMatch {
+                        line: raw.line,
+                        column: raw.column,
+                        unit: raw.unit,
+                        section: raw.section,
+                    },
+                    pdf: Some(PdfMatch {
+                        page,
+                        backend: PdfBackend::MutoolNative,
+                    }),
+                });
+            }
+        }
+
+        rank_candidates(&mut candidates);
+        candidates.truncate(max_candidates);
+
+        let uncovered_tokens = claim_tokens
+            .required
+            .iter()
+            .filter(|token| {
+                !candidates
+                    .iter()
+                    .any(|candidate| covers(&candidate.exact, token))
+            })
+            .cloned()
+            .collect();
+
+        claims.push(ClaimProposal {
+            claim: index,
+            required_tokens: claim_tokens.required,
+            uncovered_tokens,
+            candidates,
+        });
+    }
+
+    Ok(ProposalReport {
+        id: summary.id.clone(),
+        claims,
+    })
+}
+
+/// A scored span before it has been checked against the PDF.
+struct RawCandidate {
+    source: String,
+    exact: String,
+    matched: usize,
+    line: usize,
+    column: usize,
+    unit: UnitKind,
+    section: Vec<String>,
+}
+
+fn generate_candidates(
+    source: &str,
+    units: &[MarkdownUnit],
+    claim_tokens: &ExtractedTokens,
+) -> Vec<RawCandidate> {
+    let mut candidates = Vec::new();
+
+    for unit in units {
+        for span in candidate_spans(&unit.text) {
+            // A span that repeats inside its own unit can never be pinned to
+            // one place in it, which is exactly what validation demands.
+            if exact_count(&unit.text, &span) != 1 {
+                continue;
+            }
+            let matched = claim_tokens
+                .required
+                .iter()
+                .filter(|token| covers(&span, token))
+                .count();
+            if matched == 0 {
+                continue;
+            }
+            candidates.push(RawCandidate {
+                source: source.to_owned(),
+                exact: span,
+                matched,
+                line: unit.line,
+                column: unit.column,
+                unit: unit.kind,
+                section: unit.section.clone(),
+            });
+        }
+    }
+
+    candidates
+}
+
+/// Every sentence, plus the whole unit when it holds more than one.
+fn candidate_spans(text: &str) -> Vec<String> {
+    let mut spans = split_sentences(text);
+    if spans.len() > 1 {
+        spans.push(text.to_owned());
+    }
+    spans
+}
+
+/// Number words drift in case between a summary and its source.
+fn covers(text: &str, token: &str) -> bool {
+    if tokens::is_number_word(token) {
+        tokens::is_covered_case_insensitive(text, token)
+    } else {
+        tokens::is_covered(text, token)
+    }
+}
+
+/// The one page holding a span, or `None` when zero or several hold it.
+fn verify_pdf(pages: &HashMap<usize, String>, exact: &str) -> Option<usize> {
+    let mut matched = pages
+        .iter()
+        .filter(|(_, text)| exact_count(text, exact) > 0)
+        .map(|(page, _)| *page);
+    let page = matched.next()?;
+    matched.next().is_none().then_some(page)
+}
+
+/// Order candidates by a total comparison, so output is reproducible.
+fn rank_candidates(candidates: &mut [Candidate]) {
+    candidates.sort_by(|left, right| {
+        right
+            .coverage
+            .matched
+            .cmp(&left.coverage.matched)
+            .then_with(|| left.exact.len().cmp(&right.exact.len()))
+            .then_with(|| left.source.cmp(&right.source))
+            .then_with(|| left.markdown.line.cmp(&right.markdown.line))
+            .then_with(|| left.markdown.column.cmp(&right.markdown.column))
+    });
 }
