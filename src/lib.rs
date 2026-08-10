@@ -11,4 +11,5 @@ pub mod output;
 pub mod pdf;
 pub mod sections;
 pub mod terms;
+pub mod tokens;
 pub mod validate;
