@@ -5,7 +5,10 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
-use librebar::cli::ResolvedOutputFormat;
+use librebar::cli::{
+    CommandExample, CommandMetadata, ErrorMetadata, OutputField, ResolvedOutputFormat,
+    SchemaMetadata, Stability,
+};
 use serde::Serialize;
 
 use crate::{
@@ -161,7 +164,7 @@ struct PdfMatchDiagnostic {
 }
 
 pub fn run() -> Result<()> {
-    let cli = Cli::parse();
+    let cli: Cli = librebar::cli::parse_with(schema_metadata());
     if cli
         .common
         .apply(env!("CARGO_PKG_VERSION"))
@@ -194,6 +197,245 @@ pub fn run() -> Result<()> {
         ),
         Command::Propose(args) => propose_cmd(&corpus, &args, json, quiet),
     }
+}
+
+fn schema_metadata() -> SchemaMetadata {
+    SchemaMetadata::new()
+        .version(env!("CARGO_PKG_VERSION").to_owned())
+        .command(
+            "doctor",
+            CommandMetadata::new()
+                .mutating(false)
+                .stability(Stability::Stable)
+                .output_field(
+                    OutputField::new("corpus", "string").description("Resolved corpus root path"),
+                )
+                .output_field(
+                    OutputField::new("config", "string")
+                        .description("Config file path or 'defaults'"),
+                )
+                .output_field(
+                    OutputField::new("mutool", "string").description("MuPDF version or error"),
+                )
+                .output_field(
+                    OutputField::new("tesseract", "string")
+                        .description("Tesseract version or error"),
+                )
+                .output_field(
+                    OutputField::new("native_profile", "string")
+                        .description("Native PDF extraction profile name"),
+                )
+                .output_field(
+                    OutputField::new("ocr_profile", "string")
+                        .description("OCR extraction profile name"),
+                )
+                .output_field(OutputField::new("cache", "string").description("Cache root path")),
+        )
+        .command(
+            "locate",
+            CommandMetadata::new()
+                .mutating(false)
+                .stability(Stability::Stable)
+                .output_field(
+                    OutputField::new("source", "string")
+                        .description("Source name (default or named)"),
+                )
+                .output_field(
+                    OutputField::new("markdown", "object")
+                        .description("Markdown source record: {source, sha256}"),
+                )
+                .output_field(
+                    OutputField::new("pdf", "object")
+                        .description("PDF source record: {source, sha256}"),
+                )
+                .output_field(
+                    OutputField::new("claim", "object")
+                        .description("Claim evidence entry: {claim, claim_sha256, locators}"),
+                )
+                .output_field(
+                    OutputField::new("pdf_match", "object").description(
+                        "PDF match diagnostic: {page, backend, bbox?, mean_confidence?}",
+                    ),
+                )
+                .example(CommandExample::new([
+                    "smith-2019",
+                    "--claim",
+                    "0",
+                    "--exact",
+                    "no measurable turbulent mixing was observed",
+                    "--page",
+                    "3",
+                ])),
+        )
+        .command(
+            "check",
+            CommandMetadata::new()
+                .mutating(false)
+                .stability(Stability::Stable)
+                .output_field(
+                    OutputField::new("valid", "integer").description("Number of valid summaries"),
+                )
+                .output_field(
+                    OutputField::new("skipped", "integer")
+                        .description("Summaries without evidence (skipped unless targeted)"),
+                )
+                .output_field(
+                    OutputField::new("invalid", "integer")
+                        .description("Summaries with validation errors"),
+                )
+                .output_field(
+                    OutputField::new("summaries", "object[]")
+                        .description("Per-summary validation reports: {id, issues}"),
+                )
+                .example(CommandExample::new(["smith-2019"])),
+        )
+        .command(
+            "audit",
+            CommandMetadata::new()
+                .mutating(false)
+                .stability(Stability::Stable)
+                .output_field(
+                    OutputField::new("valid", "integer")
+                        .description("Summaries with valid evidence"),
+                )
+                .output_field(
+                    OutputField::new("missing", "integer")
+                        .description("Summaries without evidence"),
+                )
+                .output_field(
+                    OutputField::new("invalid", "integer")
+                        .description("Summaries with invalid evidence"),
+                )
+                .output_field(
+                    OutputField::new("summaries", "object[]")
+                        .description("Per-summary audit status: {id, status, issues}"),
+                )
+                .example(CommandExample::new(["--strict"])),
+        )
+        .command(
+            "propose",
+            CommandMetadata::new()
+                .mutating(false)
+                .stability(Stability::Stable)
+                .output_field(OutputField::new("id", "string").description("Summary document ID"))
+                .output_field(OutputField::new("claims", "object[]").description(
+                    "Per-claim proposals: {claim, required_tokens, uncovered_tokens, candidates}",
+                ))
+                .example(CommandExample::new([
+                    "smith-2019",
+                    "--all",
+                    "--candidates",
+                    "5",
+                ])),
+        )
+        .error(
+            ErrorMetadata::new("missing_evidence")
+                .exit_code(1)
+                .retryable(false)
+                .description("Summary has no evidence section"),
+        )
+        .error(
+            ErrorMetadata::new("stale_hash")
+                .exit_code(1)
+                .retryable(false)
+                .description("Claim or source SHA-256 does not match current content"),
+        )
+        .error(
+            ErrorMetadata::new("markdown_missing")
+                .exit_code(1)
+                .retryable(false)
+                .description("Exact text not found in the recorded Markdown unit"),
+        )
+        .error(
+            ErrorMetadata::new("markdown_ambiguous")
+                .exit_code(1)
+                .retryable(false)
+                .description("Exact text occurs more than once in the Markdown unit"),
+        )
+        .error(
+            ErrorMetadata::new("pdf_missing")
+                .exit_code(1)
+                .retryable(false)
+                .description("Exact text not found on the PDF page"),
+        )
+        .error(
+            ErrorMetadata::new("pdf_ambiguous")
+                .exit_code(1)
+                .retryable(false)
+                .description("Exact text occurs more than once on the PDF page"),
+        )
+        .error(
+            ErrorMetadata::new("unknown_source")
+                .exit_code(1)
+                .retryable(false)
+                .description("Locator references an undeclared source"),
+        )
+        .error(
+            ErrorMetadata::new("unused_source")
+                .exit_code(1)
+                .retryable(false)
+                .description("Declared source is not cited by any locator"),
+        )
+        .error(
+            ErrorMetadata::new("unknown_source_template")
+                .exit_code(1)
+                .retryable(false)
+                .description("No configured templates for a declared source name"),
+        )
+        .error(
+            ErrorMetadata::new("uncovered_token")
+                .exit_code(1)
+                .retryable(false)
+                .description("A required claim token appears in no locator"),
+        )
+        .error(
+            ErrorMetadata::new("stale_section")
+                .exit_code(1)
+                .retryable(false)
+                .description("Recorded section path disagrees with the source"),
+        )
+        .error(
+            ErrorMetadata::new("ocr_disabled")
+                .exit_code(1)
+                .retryable(false)
+                .description("Locator uses OCR but OCR is disabled in configuration"),
+        )
+        .error(
+            ErrorMetadata::new("stale_review_claim")
+                .exit_code(1)
+                .retryable(false)
+                .description("Review claim_sha256 does not match current claim text"),
+        )
+        .error(
+            ErrorMetadata::new("stale_review_evidence")
+                .exit_code(1)
+                .retryable(false)
+                .description("Review evidence_sha256 does not match current locator set"),
+        )
+        .error(
+            ErrorMetadata::new("unknown_review_claim")
+                .exit_code(1)
+                .retryable(false)
+                .description("Review entry references a nonexistent claim"),
+        )
+        .error(
+            ErrorMetadata::new("duplicate_review_claim")
+                .exit_code(1)
+                .retryable(false)
+                .description("Two review entries for one claim"),
+        )
+        .error(
+            ErrorMetadata::new("missing_review")
+                .exit_code(1)
+                .retryable(false)
+                .description("Claim has no review entry (under --require-review)"),
+        )
+        .error(
+            ErrorMetadata::new("unsupported_verdict")
+                .exit_code(1)
+                .retryable(false)
+                .description("Verdict is not 'supported' (under --require-review)"),
+        )
 }
 
 fn doctor(corpus: &Corpus, json: bool, quiet: bool) -> Result<()> {
