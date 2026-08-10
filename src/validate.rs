@@ -7,13 +7,14 @@ use std::{
 use serde::Serialize;
 
 use crate::{
+    config::TokenSeverity,
     corpus::Corpus,
     evidence::{EvidenceIssue, PdfBackend, Severity, SummaryDocument},
     hash::sha256_file,
     markdown::{MarkdownUnit, exact_count, parse_units, resolve_unit},
     normalize::normalize,
     pdf::PdfTextProvider,
-    sections,
+    sections, tokens,
 };
 
 /// Complete accumulated result for one summary.
@@ -140,6 +141,11 @@ pub fn validate_document(
     }
 
     let mut pdf_pages: HashMap<(&str, PdfBackend, usize), Result<String, String>> = HashMap::new();
+    let token_severity = match corpus.coverage_config().tokens {
+        TokenSeverity::Error => Some(Severity::Error),
+        TokenSeverity::Warn => Some(Severity::Warning),
+        TokenSeverity::Off => None,
+    };
 
     for entry in &evidence.claims {
         for (locator_index, locator) in entry.locators.iter().enumerate() {
@@ -262,6 +268,32 @@ pub fn validate_document(
                     Some(entry.claim),
                     Some(locator_index),
                 )),
+            }
+        }
+
+        if let Some(severity) = token_severity
+            && let Some(claim_text) = summary.claims.get(entry.claim)
+        {
+            for token in &tokens::extract(claim_text).required {
+                let covered = entry.locators.iter().any(|locator| {
+                    if tokens::is_number_word(token) {
+                        tokens::is_covered_case_insensitive(&locator.exact, token)
+                    } else {
+                        tokens::is_covered(&locator.exact, token)
+                    }
+                });
+                if !covered {
+                    issues.push(issue(
+                        "uncovered_token",
+                        severity,
+                        format!(
+                            "required token {:?} from claim {} appears in no locator",
+                            token, entry.claim
+                        ),
+                        Some(entry.claim),
+                        None,
+                    ));
+                }
             }
         }
     }

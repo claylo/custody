@@ -10,7 +10,7 @@ use receipts::{
     corpus::Corpus,
     evidence::{
         ClaimEvidence, DEFAULT_SOURCE, Evidence, Locator, MarkdownLocator, PdfBackend, PdfLocator,
-        SourcePair, SourceRecord, SummaryDocument,
+        Severity, SourcePair, SourceRecord, SummaryDocument,
     },
     hash::{sha256_bytes, sha256_file},
     markdown::{UnitKind, parse_units},
@@ -297,7 +297,7 @@ fn each_named_source_resolves_against_its_own_files() {
     .unwrap();
     let corpus = Corpus::discover_from(temp.path(), None).unwrap();
 
-    let claim = "A claim bound to two sources.".to_owned();
+    let claim = "A claim bound to both sources.".to_owned();
     let summary = SummaryDocument {
         id: "smith-2019".to_owned(),
         claims: vec![claim.clone()],
@@ -424,6 +424,117 @@ fn matching_section_produces_no_issue() {
     assert!(report.issues.is_empty(), "{:?}", report.issues);
 }
 
+#[test]
+fn uncovered_token_is_reported_when_number_missing_from_locators() {
+    let fixture = Fixture::new("The effect was 42.8% within tolerance.\n");
+    let summary = fixture.summary_for(
+        "The result showed 42.8% accuracy across 3 trials.",
+        "42.8% within tolerance",
+        PdfBackend::MutoolNative,
+    );
+
+    let report = validate_document(
+        &fixture.corpus,
+        &summary,
+        &FakePdf {
+            pages: HashMap::from([(
+                (PdfBackend::MutoolNative, 1),
+                "The effect was 42.8% within tolerance.".to_owned(),
+            )]),
+        },
+    );
+
+    let uncovered: Vec<_> = report
+        .issues
+        .iter()
+        .filter(|issue| issue.code == "uncovered_token")
+        .collect();
+    assert!(
+        uncovered
+            .iter()
+            .any(|issue| issue.message.contains("\"3\"")),
+        "{:?}",
+        report.issues
+    );
+    assert!(
+        !uncovered
+            .iter()
+            .any(|issue| issue.message.contains("42.8%")),
+        "{:?}",
+        report.issues
+    );
+}
+
+#[test]
+fn coverage_tokens_off_skips_token_check() {
+    let fixture = Fixture::with_config(
+        "The finding text.\n",
+        "cache:\n  root: \".cache/pdf-text\"\ncoverage:\n  tokens: off\n",
+    );
+    let summary = fixture.summary_for(
+        "There were 5 total findings.",
+        "finding text",
+        PdfBackend::MutoolNative,
+    );
+
+    let report = validate_document(
+        &fixture.corpus,
+        &summary,
+        &FakePdf {
+            pages: HashMap::from([(
+                (PdfBackend::MutoolNative, 1),
+                "The finding text.".to_owned(),
+            )]),
+        },
+    );
+
+    assert!(
+        !report
+            .issues
+            .iter()
+            .any(|issue| issue.code == "uncovered_token"),
+        "{:?}",
+        report.issues
+    );
+}
+
+#[test]
+fn coverage_tokens_warn_produces_warnings_not_errors() {
+    let fixture = Fixture::with_config(
+        "The finding text.\n",
+        "cache:\n  root: \".cache/pdf-text\"\ncoverage:\n  tokens: warn\n",
+    );
+    let summary = fixture.summary_for(
+        "There were 5 findings total.",
+        "finding text",
+        PdfBackend::MutoolNative,
+    );
+
+    let report = validate_document(
+        &fixture.corpus,
+        &summary,
+        &FakePdf {
+            pages: HashMap::from([(
+                (PdfBackend::MutoolNative, 1),
+                "The finding text.".to_owned(),
+            )]),
+        },
+    );
+
+    let token_issues: Vec<_> = report
+        .issues
+        .iter()
+        .filter(|issue| issue.code == "uncovered_token")
+        .collect();
+    assert!(!token_issues.is_empty(), "{:?}", report.issues);
+    assert!(
+        token_issues
+            .iter()
+            .all(|issue| issue.severity == Severity::Warning)
+    );
+    assert!(report.is_valid(), "warnings should not make report invalid");
+}
+
 fn source_pair(corpus: &Corpus, markdown: &str, pdf: &str) -> SourcePair {
     SourcePair {
         markdown: SourceRecord {
@@ -493,11 +604,15 @@ impl Fixture {
     }
 
     fn summary(&self, exact: &str, backend: PdfBackend) -> SummaryDocument {
+        self.summary_for("A claim bound to literal source evidence.", exact, backend)
+    }
+
+    fn summary_for(&self, claim: &str, exact: &str, backend: PdfBackend) -> SummaryDocument {
         let unit = parse_units(&self.markdown)
             .into_iter()
             .find(|unit| unit.text.contains(exact))
             .unwrap();
-        let claim = "A claim bound to literal source evidence.".to_owned();
+        let claim = claim.to_owned();
         SummaryDocument {
             id: "smith-2019".to_owned(),
             claims: vec![claim.clone()],
