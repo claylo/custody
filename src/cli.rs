@@ -11,7 +11,7 @@ use serde::Serialize;
 use crate::{
     corpus::Corpus,
     evidence::{
-        ClaimEvidence, DEFAULT_SOURCE, Locator, MarkdownLocator, PdfBackend, PdfLocator,
+        ClaimEvidence, DEFAULT_SOURCE, Locator, MarkdownLocator, PdfBackend, PdfLocator, Severity,
         SourceRecord, parse_summary,
     },
     hash::sha256_file,
@@ -478,6 +478,7 @@ fn audit(corpus: &Corpus, strict: bool, ids: &[String], json: bool, quiet: bool)
                     status: AuditStatus::Invalid,
                     issues: vec![crate::evidence::EvidenceIssue {
                         code: "summary_parse_failed".to_owned(),
+                        severity: Severity::Error,
                         message: error.to_string(),
                         claim: None,
                         locator: None,
@@ -493,6 +494,7 @@ fn audit(corpus: &Corpus, strict: bool, ids: &[String], json: bool, quiet: bool)
                 status: AuditStatus::Invalid,
                 issues: vec![crate::evidence::EvidenceIssue {
                     code: "id_mismatch".to_owned(),
+                    severity: Severity::Error,
                     message: format!("summary ID {:?} does not match filename", summary.id),
                     claim: None,
                     locator: None,
@@ -600,7 +602,11 @@ fn print_check_report(report: &CheckReport, json: bool, quiet: bool) -> Result<(
 fn print_issues(reports: &[ValidationReport]) {
     for report in reports {
         for issue in &report.issues {
-            eprintln!("{}: {}: {}", report.id, issue.code, issue.message);
+            let prefix = match issue.severity {
+                Severity::Warning => "warning: ",
+                Severity::Error => "",
+            };
+            eprintln!("{}: {prefix}{}: {}", report.id, issue.code, issue.message);
         }
     }
 }
@@ -608,7 +614,11 @@ fn print_issues(reports: &[ValidationReport]) {
 fn print_audit_issues(summaries: &[AuditSummary]) {
     for summary in summaries {
         for issue in &summary.issues {
-            eprintln!("{}: {}: {}", summary.id, issue.code, issue.message);
+            let prefix = match issue.severity {
+                Severity::Warning => "warning: ",
+                Severity::Error => "",
+            };
+            eprintln!("{}: {prefix}{}: {}", summary.id, issue.code, issue.message);
         }
     }
 }
@@ -622,6 +632,7 @@ fn error_report(
         id,
         issues: vec![crate::evidence::EvidenceIssue {
             code: code.into(),
+            severity: Severity::Error,
             message: message.into(),
             claim: None,
             locator: None,

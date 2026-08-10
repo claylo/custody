@@ -93,10 +93,19 @@ impl PdfBackend {
     }
 }
 
+/// How much weight an issue carries: errors fail validation, warnings do not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Severity {
+    Error,
+    Warning,
+}
+
 /// One accumulated evidence-contract problem.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct EvidenceIssue {
     pub code: String,
+    pub severity: Severity,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub claim: Option<usize>,
@@ -180,6 +189,7 @@ impl SummaryDocument {
         let Some(evidence) = self.evidence.as_ref() else {
             return vec![issue(
                 "missing_evidence",
+                Severity::Error,
                 "summary is missing evidence section",
                 None,
                 None,
@@ -190,6 +200,7 @@ impl SummaryDocument {
         if evidence.sources.is_empty() {
             issues.push(issue(
                 "empty_sources",
+                Severity::Error,
                 "evidence declares no sources",
                 None,
                 None,
@@ -199,6 +210,7 @@ impl SummaryDocument {
             if !validate_source_name(name) {
                 issues.push(issue(
                     "invalid_source_name",
+                    Severity::Error,
                     format!("source name {name:?} is not a valid path component"),
                     None,
                     None,
@@ -214,6 +226,7 @@ impl SummaryDocument {
             if entry.claim >= self.claims.len() {
                 issues.push(issue(
                     "entry_out_of_range",
+                    Severity::Error,
                     format!(
                         "evidence {} {} is out of range for {} {}",
                         terms.claim,
@@ -230,6 +243,7 @@ impl SummaryDocument {
                 if entry.claim_sha256 != actual {
                     issues.push(issue(
                         "stale_hash",
+                        Severity::Error,
                         format!(
                             "{} {} hash is stale: expected {actual}, found {}",
                             terms.claim, entry.claim, entry.claim_sha256
@@ -242,6 +256,7 @@ impl SummaryDocument {
             if entry.locators.is_empty() {
                 issues.push(issue(
                     "empty_locators",
+                    Severity::Error,
                     format!("{} {} has no locators", terms.claim, entry.claim),
                     Some(entry.claim),
                     None,
@@ -260,6 +275,7 @@ impl SummaryDocument {
                 } else {
                     issues.push(issue(
                         "unknown_source",
+                        Severity::Error,
                         format!("locator references undeclared source {:?}", locator.source),
                         Some(entry.claim),
                         Some(locator_index),
@@ -273,6 +289,7 @@ impl SummaryDocument {
             match count {
                 0 => issues.push(issue(
                     "missing_evidence_entry",
+                    Severity::Error,
                     format!("missing evidence for {} {index}", terms.claim),
                     Some(index),
                     None,
@@ -280,6 +297,7 @@ impl SummaryDocument {
                 1 => {}
                 _ => issues.push(issue(
                     "duplicate_entry",
+                    Severity::Error,
                     format!("{} {index} has {count} evidence entries", terms.claim),
                     Some(index),
                     None,
@@ -291,6 +309,7 @@ impl SummaryDocument {
             if !referenced.contains(name.as_str()) {
                 issues.push(issue(
                     "unused_source",
+                    Severity::Error,
                     format!("source {name:?} is declared but no locator references it"),
                     None,
                     None,
@@ -306,6 +325,7 @@ fn validate_source(label: &str, source: &SourceRecord, issues: &mut Vec<Evidence
     if source.source.is_empty() {
         issues.push(issue(
             "empty_source",
+            Severity::Error,
             format!("{label} source path is empty"),
             None,
             None,
@@ -322,6 +342,7 @@ fn validate_hash(label: &str, hash: &str, claim: Option<usize>, issues: &mut Vec
     {
         issues.push(issue(
             "invalid_sha256",
+            Severity::Error,
             format!("{label} must be 64 lowercase hexadecimal characters"),
             claim,
             None,
@@ -339,6 +360,7 @@ fn validate_locator(
     if normalized.is_empty() {
         issues.push(issue(
             "empty_exact",
+            Severity::Error,
             "locator exact text is empty after normalization",
             Some(claim),
             Some(locator_index),
@@ -346,6 +368,7 @@ fn validate_locator(
     } else if normalized != locator.exact {
         issues.push(issue(
             "unnormalized_exact",
+            Severity::Error,
             format!("locator exact text must be normalized as {normalized:?}"),
             Some(claim),
             Some(locator_index),
@@ -354,6 +377,7 @@ fn validate_locator(
     if locator.markdown.line == 0 {
         issues.push(issue(
             "invalid_markdown_line",
+            Severity::Error,
             "Markdown line must be one-based",
             Some(claim),
             Some(locator_index),
@@ -362,6 +386,7 @@ fn validate_locator(
     if locator.markdown.column == 0 {
         issues.push(issue(
             "invalid_markdown_column",
+            Severity::Error,
             "Markdown column must be one-based",
             Some(claim),
             Some(locator_index),
@@ -370,6 +395,7 @@ fn validate_locator(
     if locator.pdf.page == 0 {
         issues.push(issue(
             "invalid_pdf_page",
+            Severity::Error,
             "PDF page must be one-based",
             Some(claim),
             Some(locator_index),
@@ -379,12 +405,14 @@ fn validate_locator(
 
 fn issue(
     code: impl Into<String>,
+    severity: Severity,
     message: impl Into<String>,
     claim: Option<usize>,
     locator: Option<usize>,
 ) -> EvidenceIssue {
     EvidenceIssue {
         code: code.into(),
+        severity,
         message: message.into(),
         claim,
         locator,

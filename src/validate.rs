@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use crate::{
     corpus::Corpus,
-    evidence::{EvidenceIssue, PdfBackend, SummaryDocument},
+    evidence::{EvidenceIssue, PdfBackend, Severity, SummaryDocument},
     hash::sha256_file,
     markdown::{MarkdownUnit, exact_count, parse_units, resolve_unit},
     normalize::normalize,
@@ -24,8 +24,13 @@ pub struct ValidationReport {
 
 impl ValidationReport {
     #[must_use]
-    pub const fn is_valid(&self) -> bool {
-        self.issues.is_empty()
+    pub fn is_valid(&self) -> bool {
+        !self.issues.iter().any(|i| i.severity == Severity::Error)
+    }
+
+    #[must_use]
+    pub fn has_warnings(&self) -> bool {
+        self.issues.iter().any(|i| i.severity == Severity::Warning)
     }
 }
 
@@ -53,6 +58,7 @@ pub fn validate_document(
         if !configured.iter().any(|name| name == source_name) {
             issues.push(issue(
                 "unknown_source_template",
+                Severity::Error,
                 format!("no configured templates for source {source_name:?}"),
                 None,
                 None,
@@ -62,7 +68,13 @@ pub fn validate_document(
         let markdown_candidates = match corpus.markdown_candidates_for(&summary.id, source_name) {
             Ok(paths) => paths,
             Err(error) => {
-                issues.push(issue("invalid_id", error.to_string(), None, None));
+                issues.push(issue(
+                    "invalid_id",
+                    Severity::Error,
+                    error.to_string(),
+                    None,
+                    None,
+                ));
                 continue;
             }
         };
@@ -73,7 +85,13 @@ pub fn validate_document(
         let pdf_path = match corpus.pdf_path_for(&summary.id, source_name) {
             Ok(path) => path,
             Err(error) => {
-                issues.push(issue("invalid_id", error.to_string(), None, None));
+                issues.push(issue(
+                    "invalid_id",
+                    Severity::Error,
+                    error.to_string(),
+                    None,
+                    None,
+                ));
                 continue;
             }
         };
@@ -112,6 +130,7 @@ pub fn validate_document(
             }
             Err(error) => issues.push(issue(
                 "markdown_read_failed",
+                Severity::Error,
                 format!("failed to read {}: {error}", markdown_path.display()),
                 None,
                 None,
@@ -136,6 +155,7 @@ pub fn validate_document(
                         1 => {}
                         0 => issues.push(issue(
                             "markdown_missing",
+                            Severity::Error,
                             format!(
                                 "exact text does not occur in the recorded {:?} unit",
                                 locator.markdown.unit
@@ -145,6 +165,7 @@ pub fn validate_document(
                         )),
                         count => issues.push(issue(
                             "markdown_ambiguous",
+                            Severity::Error,
                             format!(
                                 "exact text occurs {count} times in the recorded Markdown unit"
                             ),
@@ -154,6 +175,7 @@ pub fn validate_document(
                     },
                     Err(error) => issues.push(issue(
                         "markdown_unit_missing",
+                        Severity::Error,
                         error.to_string(),
                         Some(entry.claim),
                         Some(locator_index),
@@ -164,6 +186,7 @@ pub fn validate_document(
             if locator.pdf.backend == PdfBackend::TesseractOcr && !corpus.ocr_config().enabled {
                 issues.push(issue(
                     "ocr_disabled",
+                    Severity::Error,
                     format!(
                         "locator uses {} but OCR is disabled in configuration",
                         locator.pdf.backend.as_str()
@@ -195,6 +218,7 @@ pub fn validate_document(
                     1 => {}
                     0 => issues.push(issue(
                         "pdf_missing",
+                        Severity::Error,
                         format!(
                             "exact text does not occur on PDF page {} through {}",
                             locator.pdf.page,
@@ -205,6 +229,7 @@ pub fn validate_document(
                     )),
                     count => issues.push(issue(
                         "pdf_ambiguous",
+                        Severity::Error,
                         format!(
                             "exact text occurs {count} times on PDF page {} through {}",
                             locator.pdf.page,
@@ -216,6 +241,7 @@ pub fn validate_document(
                 },
                 Err(error) => issues.push(issue(
                     "pdf_extraction_failed",
+                    Severity::Error,
                     error.clone(),
                     Some(entry.claim),
                     Some(locator_index),
@@ -271,6 +297,7 @@ fn validate_source_path(
     if recorded != expected_relative {
         issues.push(issue(
             format!("{label}_source_mismatch"),
+            Severity::Error,
             format!("recorded {label} source is {recorded:?}; expected {expected_relative:?}"),
             None,
             None,
@@ -289,6 +316,7 @@ fn validate_file_hash(
         Ok(actual) => {
             issues.push(issue(
                 format!("{label}_hash_mismatch"),
+                Severity::Error,
                 format!(
                     "{} hash is stale: expected {actual}, found {expected}",
                     path.display()
@@ -301,6 +329,7 @@ fn validate_file_hash(
         Err(error) => {
             issues.push(issue(
                 format!("{label}_read_failed"),
+                Severity::Error,
                 error.to_string(),
                 None,
                 None,
@@ -321,6 +350,7 @@ fn validate_resolved_source(
         Ok(resolved) => {
             issues.push(issue(
                 format!("{label}_source_outside_repo"),
+                Severity::Error,
                 format!(
                     "{} resolves outside the corpus to {}",
                     path.display(),
@@ -334,6 +364,7 @@ fn validate_resolved_source(
         Err(error) => {
             issues.push(issue(
                 format!("{label}_source_unresolvable"),
+                Severity::Error,
                 format!("failed to resolve {}: {error}", path.display()),
                 None,
                 None,
@@ -345,12 +376,14 @@ fn validate_resolved_source(
 
 fn issue(
     code: impl Into<String>,
+    severity: Severity,
     message: impl Into<String>,
     claim: Option<usize>,
     locator: Option<usize>,
 ) -> EvidenceIssue {
     EvidenceIssue {
         code: code.into(),
+        severity,
         message: message.into(),
         claim,
         locator,
