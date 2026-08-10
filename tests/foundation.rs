@@ -302,3 +302,39 @@ fn exposes_ocr_config_from_corpus() {
     assert!(corpus.ocr_config().enabled);
     assert_eq!(corpus.ocr_config().page_segmentation_mode, 3);
 }
+
+#[test]
+fn coverage_and_sections_default_when_undeclared() {
+    let dir = tempfile::tempdir().unwrap();
+    write_config(dir.path(), "cache:\n  root: \"c\"\n");
+    let corpus = Corpus::discover_from(dir.path(), None).unwrap();
+
+    assert_eq!(
+        corpus.coverage_config().tokens,
+        config::TokenSeverity::Error
+    );
+    assert!(corpus.sections_config().weak.is_empty());
+}
+
+#[test]
+fn exposes_coverage_and_sections_config_from_corpus() {
+    let dir = tempfile::tempdir().unwrap();
+    write_config(
+        dir.path(),
+        "cache:\n  root: \"c\"\ncoverage:\n  tokens: warn\nsections:\n  weak:\n    - Abstract\n    - References\n",
+    );
+    let corpus = Corpus::discover_from(dir.path(), None).unwrap();
+
+    assert_eq!(corpus.coverage_config().tokens, config::TokenSeverity::Warn);
+    assert_eq!(corpus.sections_config().weak, ["Abstract", "References"]);
+}
+
+#[test]
+fn rejects_an_unknown_coverage_severity() {
+    let dir = tempfile::tempdir().unwrap();
+    write_config(
+        dir.path(),
+        "cache:\n  root: \"c\"\ncoverage:\n  tokens: quiet\n",
+    );
+    assert!(Corpus::discover_from(dir.path(), None).is_err());
+}

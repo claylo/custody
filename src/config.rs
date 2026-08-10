@@ -19,6 +19,8 @@ pub struct Config {
     pub cache: CacheConfig,
     pub pdf: PdfConfig,
     pub terms: crate::terms::Terms,
+    pub coverage: CoverageConfig,
+    pub sections: SectionsConfig,
 }
 
 /// Path templates resolved against the corpus root. `{id}` is substituted.
@@ -106,6 +108,31 @@ impl Default for OcrConfig {
             page_segmentation_mode: 3,
         }
     }
+}
+
+/// How a claim token that no locator covers is reported.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TokenSeverity {
+    #[default]
+    Error,
+    Warn,
+    Off,
+}
+
+/// Which claim-token gaps are reported, and how loudly.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CoverageConfig {
+    pub tokens: TokenSeverity,
+}
+
+/// Sections whose evidence is treated as weak.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SectionsConfig {
+    /// Heading substrings that mark a section as weak evidence.
+    pub weak: Vec<String>,
 }
 
 /// A resolved configuration together with where it came from.

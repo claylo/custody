@@ -16,6 +16,8 @@ pub struct Corpus {
     config_file: Option<PathBuf>,
     terms: crate::terms::Terms,
     ocr_config: crate::config::OcrConfig,
+    coverage_config: crate::config::CoverageConfig,
+    sections_config: crate::config::SectionsConfig,
 }
 
 impl Corpus {
@@ -49,6 +51,8 @@ impl Corpus {
             config_file,
             terms: config.terms,
             ocr_config: config.pdf.ocr,
+            coverage_config: config.coverage,
+            sections_config: config.sections,
         })
     }
 
@@ -62,6 +66,18 @@ impl Corpus {
     #[must_use]
     pub const fn ocr_config(&self) -> &crate::config::OcrConfig {
         &self.ocr_config
+    }
+
+    /// Claim-token coverage settings for this corpus.
+    #[must_use]
+    pub const fn coverage_config(&self) -> &crate::config::CoverageConfig {
+        &self.coverage_config
+    }
+
+    /// Weak-section settings for this corpus.
+    #[must_use]
+    pub const fn sections_config(&self) -> &crate::config::SectionsConfig {
+        &self.sections_config
     }
 
     #[must_use]
