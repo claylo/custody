@@ -10,12 +10,14 @@ Ambiguity is an error, not an occurrence to choose from.
 
 It does not judge whether a passage logically supports a claim. It proves the
 claim has not changed since evidence was selected, and that the cited text is
-still present in both sources.
+still present in both sources. The [review tier](#review) records semantic
+verdicts separately, bound to both the claim text and the evidence set — the
+tool never produces a verdict and never treats one as truth.
 
 ## Install
 
 ```bash
-cargo install receipts
+cargo install --path .
 ```
 
 ## Runtime dependencies
@@ -38,10 +40,16 @@ root, so the tool makes no assumptions about what else the corpus contains.
 ```yaml
 corpus:
   summaries: "summaries/{id}.yaml"
-  markdown:
-    - "md/{id}.md"
-    - "md/{id}/{id}.md"
-  pdf: "pdfs/{id}.pdf"
+  sources:
+    default:
+      markdown:
+        - "md/{id}.md"
+        - "md/{id}/{id}.md"
+      pdf: "pdfs/{id}.pdf"
+    supplement:
+      markdown:
+        - "md/{id}-supp.md"
+      pdf: "pdfs/{id}-supp.pdf"
 
 cache:
   root: null
@@ -51,7 +59,17 @@ pdf:
     enabled: true
     dpi: 300
     lang: eng
+    page_segmentation_mode: 3
+
+coverage:
+  tokens: error    # error | warn | off
+
+sections:
+  weak: ["Limitations", "Future Work", "Related Work"]
 ```
+
+The bare `corpus.markdown` / `corpus.pdf` shorthand is still accepted and
+desugars into a single source named `default`.
 
 Every template is relative to the corpus root and must contain `{id}`. Absolute
 paths and `..` segments are rejected, so a config file cannot direct reads
@@ -67,34 +85,93 @@ These are real defaults: a corpus laid out as `summaries/`, `md/`, and `pdfs/`
 inside a Git repository needs no config file at all. Use `--config FILE` to name
 one explicitly.
 
+### Coverage
+
+`coverage.tokens` controls whether material-token checking is enforced:
+
+- `error` (default) — required tokens (numbers, number words, quoted phrases)
+  from each claim must appear in at least one locator.
+- `warn` — uncovered tokens produce warnings, not errors.
+- `off` — disables required-token enforcement.
+
+### Weak sections
+
+`sections.weak` lists heading substrings that mark evidence as weak. If *every*
+locator for a claim sits under a weak section (e.g., "Limitations"), a
+`weak_section_only` warning fires. This is permanently a warning — heading
+hierarchy from converters is too unreliable to gate on.
+
 ## Run
 
 ```bash
 receipts doctor
 receipts locate ID --claim 0 --exact "literal present in both sources" --page 3
-receipts check ID
-receipts audit
-receipts audit ID...
+receipts check [ID...]
+receipts check --require-review [ID...]
+receipts audit [--strict] [ID...]
+receipts propose [ID...] [--all] [--candidates N]
+receipts schema
+receipts completions SHELL
 ```
 
-`locate` chooses a pulldown-cmark semantic unit and validates the exact literal
-against MuPDF native structured text. If native text has no match and `--page`
-was supplied, it renders that physical page at 300 DPI, detects orientation, and
-tries Tesseract OCR. Native ambiguity is an error and never triggers OCR
-fallback.
+### doctor
 
-`locate --json` also reports the bounding box of the matched native-text lines or
-OCR words, and mean OCR confidence when the backend provides them. The default
-YAML-ready output keeps those diagnostics in a comment so they are not persisted
-in the strict evidence contract.
+Probes corpus paths, external tools, extraction profiles, and the cache root.
+Non-zero exit if any requirement is unavailable.
 
-Pass IDs to `audit` to inspect only part of a corpus. `--quiet` suppresses
-successful human-readable totals while retaining errors; explicit JSON output is
-never suppressed.
+### locate
 
-Only `receipts` should produce normalized literals, SHA-256 values, coordinates,
-pages, and backend names. Normalization replaces each Unicode whitespace run
-with one ASCII space and changes nothing else.
+Chooses a pulldown-cmark semantic unit and validates the exact literal against
+MuPDF native structured text. If native text has no match and `--page` was
+supplied, it renders that physical page at the configured DPI, detects
+orientation, and tries Tesseract OCR. Native ambiguity is an error and never
+triggers OCR fallback.
+
+`locate --format json` also reports the bounding box of the matched native-text
+lines or OCR words, and mean OCR confidence when the backend provides them. The
+default YAML-ready output keeps those diagnostics in a comment so they are not
+persisted in the strict evidence contract.
+
+`--source NAME` selects which named source pair to resolve against. Defaults to
+`default`.
+
+### check
+
+Validates evidence structure, source hashes, Markdown unit resolution, PDF page
+matching, token coverage, section paths, and review staleness. Non-zero exit on
+any error.
+
+`--require-review` gates on missing review entries and non-`supported` verdicts.
+Without the flag, reviews are checked for staleness but verdicts are not
+enforced.
+
+### audit
+
+Inventories every summary as valid, missing, or invalid. Non-zero exit on
+invalid evidence; `--strict` makes missing evidence fatal too.
+`--require-review` adds review gating to the validation pass.
+
+### propose
+
+Emits ranked candidate locators for claims that lack evidence, or for every
+claim with `--all`. The algorithm is deterministic: no model, no randomness,
+stable ordering. `propose` never writes to any file.
+
+`--candidates N` (default 3) limits output per claim. Human-readable output is
+commented YAML safe to paste and edit, with a suggested `receipts locate`
+command to commit the top candidate.
+
+### schema
+
+Prints a machine-readable CLI Spec v0.2 JSON document describing every
+subcommand, flag, type, default, output field, and error code. This is the
+primary interface for agents integrating with `receipts` programmatically.
+
+`receipts schema propose` narrows to one command.
+
+### completions
+
+Generates shell completions: `receipts completions zsh > _receipts`.
 
 ## Evidence contract
 
@@ -103,12 +180,13 @@ id: smith-2019
 claims:
   - "Transport remained laminar across all three test regimes."
 evidence:
-  markdown:
-    source: "md/smith-2019/smith-2019.md"
-    sha256: "..."
-  pdf:
-    source: "pdfs/smith-2019.pdf"
-    sha256: "..."
+  sources:
+    default:
+      markdown: {source: "md/smith-2019/smith-2019.md", sha256: "..."}
+      pdf:      {source: "pdfs/smith-2019.pdf", sha256: "..."}
+    supplement:
+      markdown: {source: "md/smith-2019-supp.md", sha256: "..."}
+      pdf:      {source: "pdfs/smith-2019-supp.pdf", sha256: "..."}
   claims:
     - claim: 0
       claim_sha256: "..."
@@ -118,15 +196,33 @@ evidence:
             line: 12
             column: 1
             unit: paragraph
+            section: ["Results", "Onset"]
           pdf:
             page: 3
             backend: mutool-native
+        - source: supplement
+          exact: "42.8% within tolerance"
+          markdown:
+            line: 4
+            column: 1
+            unit: table_cell
+            section: ["Appendix B", "Table B2"]
+          pdf:
+            page: 2
+            backend: tesseract-ocr
 ```
+
+The bare `evidence.markdown` / `evidence.pdf` shorthand (no `sources:` map) is
+still accepted and desugars into a single source named `default`. `source` on a
+locator defaults to `default` and may be omitted.
 
 Claim indexes are zero-based; Markdown coordinates and physical PDF pages are
 one-based. Every claim must have one entry and at least one locator. Use several
 locators when a single literal does not support every material assertion in the
 claim.
+
+`section` records the heading path the locator sits under. It is verified
+against the live document — a heading change produces a `stale_section` error.
 
 Unknown fields are rejected inside `evidence` and below, but not at the document
 level, so a summary may carry its own metadata — `authors`, `doi`, `notes` —
@@ -137,6 +233,41 @@ incrementally. Targeted `receipts check ID` always requires it, so a document
 without evidence is never a validated document. Bare `receipts check` validates
 every evidence-bearing summary and skips the rest. `audit` reports missing
 evidence without failing; `audit --strict` makes it fatal.
+
+Only `receipts` should produce normalized literals, SHA-256 values, coordinates,
+pages, and backend names. Normalization replaces each Unicode whitespace run
+with one ASCII space and changes nothing else.
+
+## Review
+
+Semantic judgment, recorded separately from proof and never confused with it:
+
+```yaml
+review:
+  claims:
+    - claim: 0
+      claim_sha256: "..."
+      evidence_sha256: "..."
+      verdict: supported
+      reviewer: "claude-opus-5"
+      note: "Locator [a] covers the mechanism; [b] covers the regime count."
+      at: "2026-08-10"
+```
+
+Four verdicts: `supported`, `partial`, `unsupported`, `unclear`.
+
+Each review entry is bound to both the claim text (`claim_sha256`) and the
+evidence set (`evidence_sha256`). `evidence_sha256` is the SHA-256 of the
+canonical JSON serialization of that claim's `locators` array, with object keys
+sorted lexicographically and `exact` values normalized. Array order is
+significant: reordering locators invalidates the review.
+
+Edit the claim text → `stale_review_claim`. Change a locator → `stale_review_evidence`. Both are errors that fire during `check` and `audit` without any flags.
+
+`--require-review` makes missing reviews (`missing_review`) and non-`supported`
+verdicts (`unsupported_verdict`) fatal.
+
+The tool never produces a review and never treats `verdict` as truth.
 
 ## Vocabulary
 
@@ -151,7 +282,7 @@ terms:
 ```
 
 Documents then use your vocabulary throughout — the document key, the nested
-`evidence` key, the entry index, and the `_sha256` suffix:
+`evidence` key, the `review` key, the entry index, and the `_sha256` suffix:
 
 ```yaml
 id: smith-2019
@@ -162,6 +293,13 @@ evidence:
     - proposition: 0
       proposition_sha256: "..."
       locators: [...]
+review:
+  propositions:
+    - proposition: 0
+      proposition_sha256: "..."
+      evidence_sha256: "..."
+      verdict: supported
+      reviewer: "..."
 ```
 
 Both forms are explicit because English pluralization is unreliable — `thesis`
@@ -170,10 +308,11 @@ your vocabulary; `locate` emits it too.
 
 Two things stay fixed regardless. **Error codes** are vocabulary-free
 (`missing_evidence_entry`, `stale_hash`, `entry_out_of_range`,
-`duplicate_entry`), so a script consuming `--json` is portable across corpora.
-And **`--claim N` keeps its name**, because it takes an index rather than the
-word: the command is identical whichever vocabulary a document uses, and a
-configurable flag would fragment every example and shell script.
+`duplicate_entry`), so a script consuming `--format json` is portable across
+corpora. `receipts schema` lists every declared error code. And **`--claim N`
+keeps its name**, because it takes an index rather than the word: the command is
+identical whichever vocabulary a document uses, and a configurable flag would
+fragment every example and shell script.
 
 ## Cache
 
@@ -201,6 +340,7 @@ be regenerated from the hashed PDF.
 just check   # fmt, clippy, build
 just test    # full suite
 just ci      # both
+just doctor  # probe tools
 ```
 
 ## License
