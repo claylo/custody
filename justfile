@@ -1,26 +1,43 @@
-# Default: fast feedback loop.
-default: check
+set shell := ["bash", "-c"]
+set dotenv-load := true
+toolchain := `taplo get -f rust-toolchain.toml toolchain.channel | tr -d '"'`
+msrv := "1.89.0"
 
-# Compile, lint, and format-check without running tests.
-check:
-    cargo fmt --check
-    cargo clippy --all-targets --locked -- -D warnings
-    cargo build --locked
+default:
+  @just --list
 
-# Full test suite.
+clippy:
+  cargo +{{toolchain}} clippy --all-targets --all-features --message-format=short -- -D warnings
+
+fix:
+  echo "Using toolchain {{toolchain}}"
+  cargo +{{toolchain}} clippy --fix --allow-dirty --allow-staged -- -W clippy::all
+
+# Check dependencies for security advisories and license compliance
+deny:
+  cargo deny --all-features --config .config/deny.toml check
+
 test:
-    cargo test --locked
-
-# Everything CI would run.
-ci: check test
+  cargo nextest run
 
 # Apply formatting.
 fmt:
-    cargo fmt
+    cargo fmt --all -- --config-path .config/rustfmt.toml
 
 # Probe configuration and external PDF tools.
 doctor:
     cargo run --locked -- doctor
+
+test-ci:
+  cargo nextest run --profile ci
+
+doc-test:
+  cargo test --doc --all-features
+  
+doc:
+  cargo doc --all-features --no-deps
+
+check: fmt clippy deny test doc-test doc
 
 # Check for outdated dependencies (root only, no transitive noise)
 outdated:
