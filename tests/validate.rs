@@ -379,6 +379,51 @@ fn a_source_without_corpus_templates_is_reported() {
     );
 }
 
+#[test]
+fn stale_section_is_reported_when_path_changes() {
+    let fixture = Fixture::new("# Results\n\n## Onset\n\nSupported once in the text.\n");
+    let mut summary = fixture.summary("Supported once", PdfBackend::MutoolNative);
+    summary.evidence.as_mut().unwrap().claims[0].locators[0]
+        .markdown
+        .section = vec!["Results".to_owned(), "Discussion".to_owned()];
+
+    let report = validate_document(
+        &fixture.corpus,
+        &summary,
+        &FakePdf {
+            pages: HashMap::from([((PdfBackend::MutoolNative, 1), "Supported once.".to_owned())]),
+        },
+    );
+
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|issue| issue.code == "stale_section"),
+        "{:?}",
+        report.issues
+    );
+}
+
+#[test]
+fn matching_section_produces_no_issue() {
+    let fixture = Fixture::new("# Results\n\n## Onset\n\nSupported once in the text.\n");
+    let mut summary = fixture.summary("Supported once", PdfBackend::MutoolNative);
+    summary.evidence.as_mut().unwrap().claims[0].locators[0]
+        .markdown
+        .section = vec!["Results".to_owned(), "Onset".to_owned()];
+
+    let report = validate_document(
+        &fixture.corpus,
+        &summary,
+        &FakePdf {
+            pages: HashMap::from([((PdfBackend::MutoolNative, 1), "Supported once.".to_owned())]),
+        },
+    );
+
+    assert!(report.issues.is_empty(), "{:?}", report.issues);
+}
+
 fn source_pair(corpus: &Corpus, markdown: &str, pdf: &str) -> SourcePair {
     SourcePair {
         markdown: SourceRecord {

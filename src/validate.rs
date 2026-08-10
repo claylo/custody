@@ -13,6 +13,7 @@ use crate::{
     markdown::{MarkdownUnit, exact_count, parse_units, resolve_unit},
     normalize::normalize,
     pdf::PdfTextProvider,
+    sections,
 };
 
 /// Complete accumulated result for one summary.
@@ -152,7 +153,22 @@ pub fn validate_document(
                     locator.markdown.column,
                 ) {
                     Ok(unit) => match exact_count(&unit.text, &locator.exact) {
-                        1 => {}
+                        1 => {
+                            if !locator.markdown.section.is_empty()
+                                && !sections::paths_match(&locator.markdown.section, &unit.section)
+                            {
+                                issues.push(issue(
+                                    "stale_section",
+                                    Severity::Error,
+                                    format!(
+                                        "recorded section {:?} but unit is under {:?}",
+                                        locator.markdown.section, unit.section
+                                    ),
+                                    Some(entry.claim),
+                                    Some(locator_index),
+                                ));
+                            }
+                        }
                         0 => issues.push(issue(
                             "markdown_missing",
                             Severity::Error,
