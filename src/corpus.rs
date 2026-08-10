@@ -96,6 +96,12 @@ impl Corpus {
         self.config_file.as_deref()
     }
 
+    /// The raw summary template string (e.g. `summaries/{id}.yaml`).
+    #[must_use]
+    pub fn summary_template(&self) -> &str {
+        &self.layout.summaries
+    }
+
     /// Directory holding summary documents, derived from the template.
     #[must_use]
     pub fn summaries_dir(&self) -> PathBuf {

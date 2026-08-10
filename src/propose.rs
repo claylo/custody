@@ -31,6 +31,7 @@ pub struct ClaimProposal {
     pub claim: usize,
     pub required_tokens: Vec<String>,
     pub uncovered_tokens: Vec<String>,
+    pub advisory_tokens: Vec<String>,
     pub candidates: Vec<Candidate>,
 }
 
@@ -161,37 +162,40 @@ pub fn propose_document(
         }
 
         let claim_tokens = tokens::extract(claim_text);
-        let mut candidates = Vec::new();
+        let mut raw_candidates = Vec::new();
         for (source_name, units) in &source_units {
-            let pages = source_pages.get(source_name);
-            for raw in generate_candidates(source_name, units, &claim_tokens) {
-                // A span the reader cannot find in the PDF is not evidence.
-                let Some(page) = pages.and_then(|pages| verify_pdf(pages, &raw.exact)) else {
-                    continue;
-                };
-                candidates.push(Candidate {
-                    source: raw.source,
-                    exact: raw.exact,
-                    coverage: CoverageScore {
-                        matched: raw.matched,
-                        required: claim_tokens.required.len(),
-                    },
-                    markdown: MarkdownMatch {
-                        line: raw.line,
-                        column: raw.column,
-                        unit: raw.unit,
-                        section: raw.section,
-                    },
-                    pdf: Some(PdfMatch {
-                        page,
-                        backend: PdfBackend::MutoolNative,
-                    }),
-                });
-            }
+            raw_candidates.extend(generate_candidates(source_name, units, &claim_tokens));
         }
+        rank_raw_candidates(&mut raw_candidates);
 
-        rank_candidates(&mut candidates);
-        candidates.truncate(max_candidates);
+        let mut candidates = Vec::new();
+        for raw in raw_candidates {
+            if candidates.len() >= max_candidates {
+                break;
+            }
+            let pages = source_pages.get(&raw.source);
+            let Some(page) = pages.and_then(|pages| verify_pdf(pages, &raw.exact)) else {
+                continue;
+            };
+            candidates.push(Candidate {
+                source: raw.source,
+                exact: raw.exact,
+                coverage: CoverageScore {
+                    matched: raw.matched,
+                    required: claim_tokens.required.len(),
+                },
+                markdown: MarkdownMatch {
+                    line: raw.line,
+                    column: raw.column,
+                    unit: raw.unit,
+                    section: raw.section,
+                },
+                pdf: Some(PdfMatch {
+                    page,
+                    backend: PdfBackend::MutoolNative,
+                }),
+            });
+        }
 
         let uncovered_tokens = claim_tokens
             .required
@@ -208,6 +212,7 @@ pub fn propose_document(
             claim: index,
             required_tokens: claim_tokens.required,
             uncovered_tokens,
+            advisory_tokens: claim_tokens.advisory,
             candidates,
         });
     }
@@ -294,16 +299,15 @@ fn verify_pdf(pages: &HashMap<usize, String>, exact: &str) -> Option<usize> {
     matched.next().is_none().then_some(page)
 }
 
-/// Order candidates by a total comparison, so output is reproducible.
-fn rank_candidates(candidates: &mut [Candidate]) {
+/// Order raw candidates before PDF verification so only top-ranked spans are checked.
+fn rank_raw_candidates(candidates: &mut [RawCandidate]) {
     candidates.sort_by(|left, right| {
         right
-            .coverage
             .matched
-            .cmp(&left.coverage.matched)
+            .cmp(&left.matched)
             .then_with(|| left.exact.len().cmp(&right.exact.len()))
             .then_with(|| left.source.cmp(&right.source))
-            .then_with(|| left.markdown.line.cmp(&right.markdown.line))
-            .then_with(|| left.markdown.column.cmp(&right.markdown.column))
+            .then_with(|| left.line.cmp(&right.line))
+            .then_with(|| left.column.cmp(&right.column))
     });
 }

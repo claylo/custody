@@ -191,22 +191,15 @@ impl OcrEngine for Tesseract {
     }
 }
 
-/// Extract a page with the engine's configured OCR profile, reusing a matching cache entry.
-pub fn ocr_page(
+/// Build the immutable OCR profile from the current tool versions and settings.
+pub fn resolve_profile(
     mutool: &impl PageRenderer,
     tesseract: &impl OcrEngine,
-    cache: &OcrCache,
-    pdf: &Path,
-    pdf_sha256: &str,
-    page: usize,
-) -> Result<ExtractedPage> {
-    if page == 0 {
-        bail!("PDF pages are one-based");
-    }
+) -> Result<OcrProfile> {
     let lang = tesseract.lang();
     let dpi = tesseract.dpi();
     let psm = tesseract.psm();
-    let profile = OcrProfile {
+    Ok(OcrProfile {
         name: profile_name(lang, dpi),
         language: lang.to_owned(),
         dpi,
@@ -216,8 +209,36 @@ pub fn ocr_page(
         render_command: render_command(dpi),
         orientation_command: ORIENTATION_COMMAND.to_owned(),
         recognition_command: recognition_command(lang, psm),
-    };
-    let manifest = CacheManifest::new(pdf_sha256.to_owned(), page, profile)?;
+    })
+}
+
+/// Extract a page with the engine's configured OCR profile, reusing a matching cache entry.
+pub fn ocr_page(
+    mutool: &impl PageRenderer,
+    tesseract: &impl OcrEngine,
+    cache: &OcrCache,
+    pdf: &Path,
+    pdf_sha256: &str,
+    page: usize,
+) -> Result<ExtractedPage> {
+    let profile = resolve_profile(mutool, tesseract)?;
+    ocr_page_with_profile(mutool, tesseract, cache, &profile, pdf, pdf_sha256, page)
+}
+
+/// Extract a page using a pre-resolved OCR profile, avoiding repeated version probes.
+pub fn ocr_page_with_profile(
+    mutool: &impl PageRenderer,
+    tesseract: &impl OcrEngine,
+    cache: &OcrCache,
+    profile: &OcrProfile,
+    pdf: &Path,
+    pdf_sha256: &str,
+    page: usize,
+) -> Result<ExtractedPage> {
+    if page == 0 {
+        bail!("PDF pages are one-based");
+    }
+    let manifest = CacheManifest::new(pdf_sha256.to_owned(), page, profile.clone())?;
     if let Some(tsv) = cache.load(&manifest)? {
         return extracted_page(page, &tsv);
     }
@@ -232,12 +253,12 @@ pub fn ocr_page(
     let initial = directory.join(format!(".page-{}-{nonce}.png", std::process::id()));
     let rotated = directory.join(format!(".page-{}-{nonce}-rotated.png", std::process::id()));
     let result = (|| {
-        mutool.render_page(pdf, page, dpi, 0, &initial)?;
+        mutool.render_page(pdf, page, profile.dpi, 0, &initial)?;
         let rotation = tesseract.rotation(&initial)?;
         let ocr_image = if rotation == 0 {
             &initial
         } else {
-            mutool.render_page(pdf, page, dpi, rotation, &rotated)?;
+            mutool.render_page(pdf, page, profile.dpi, rotation, &rotated)?;
             &rotated
         };
         let tsv = tesseract.tsv(ocr_image)?;

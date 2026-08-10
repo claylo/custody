@@ -87,12 +87,13 @@ pub trait PdfTextProvider {
 }
 
 /// Concrete `MuPDF` + Tesseract provider with a corpus-local OCR cache.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PdfTools {
     pub mutool: mutool::Mutool,
     pub tesseract: tesseract::Tesseract,
     pub cache: cache::OcrCache,
     ocr_enabled: bool,
+    ocr_profile: std::cell::OnceCell<cache::OcrProfile>,
 }
 
 impl PdfTools {
@@ -104,7 +105,16 @@ impl PdfTools {
             tesseract: tesseract::Tesseract::new(ocr.lang.clone(), dpi, ocr.page_segmentation_mode),
             cache: cache::OcrCache::new(cache_root),
             ocr_enabled: ocr.enabled,
+            ocr_profile: std::cell::OnceCell::new(),
         }
+    }
+
+    fn ocr_profile(&self) -> Result<&cache::OcrProfile> {
+        if let Some(profile) = self.ocr_profile.get() {
+            return Ok(profile);
+        }
+        let profile = tesseract::resolve_profile(&self.mutool, &self.tesseract)?;
+        Ok(self.ocr_profile.get_or_init(|| profile))
     }
 }
 
@@ -117,10 +127,12 @@ impl PdfTextProvider for PdfTools {
         if !self.ocr_enabled {
             anyhow::bail!("OCR is disabled in configuration");
         }
-        tesseract::ocr_page(
+        let profile = self.ocr_profile()?;
+        tesseract::ocr_page_with_profile(
             &self.mutool,
             &self.tesseract,
             &self.cache,
+            profile,
             pdf,
             pdf_sha256,
             page,

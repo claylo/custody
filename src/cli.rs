@@ -319,7 +319,7 @@ fn schema_metadata() -> SchemaMetadata {
                 .stability(Stability::Stable)
                 .output_field(OutputField::new("id", "string").description("Summary document ID"))
                 .output_field(OutputField::new("claims", "object[]").description(
-                    "Per-claim proposals: {claim, required_tokens, uncovered_tokens, candidates}",
+                    "Per-claim proposals: {claim, required_tokens, uncovered_tokens, advisory_tokens, candidates}",
                 ))
                 .example(CommandExample::new([
                     "smith-2019",
@@ -435,6 +435,150 @@ fn schema_metadata() -> SchemaMetadata {
                 .exit_code(1)
                 .retryable(false)
                 .description("Verdict is not 'supported' (under --require-review)"),
+        )
+        .error(
+            ErrorMetadata::new("duplicate_entry")
+                .exit_code(1)
+                .retryable(false)
+                .description("Multiple evidence entries for one claim"),
+        )
+        .error(
+            ErrorMetadata::new("missing_evidence_entry")
+                .exit_code(1)
+                .retryable(false)
+                .description("Claim has no evidence entry"),
+        )
+        .error(
+            ErrorMetadata::new("entry_out_of_range")
+                .exit_code(1)
+                .retryable(false)
+                .description("Evidence entry references a nonexistent claim"),
+        )
+        .error(
+            ErrorMetadata::new("empty_sources")
+                .exit_code(1)
+                .retryable(false)
+                .description("Evidence declares no sources"),
+        )
+        .error(
+            ErrorMetadata::new("empty_source")
+                .exit_code(1)
+                .retryable(false)
+                .description("Source record is missing markdown or pdf path"),
+        )
+        .error(
+            ErrorMetadata::new("empty_locators")
+                .exit_code(1)
+                .retryable(false)
+                .description("Evidence entry has no locators"),
+        )
+        .error(
+            ErrorMetadata::new("empty_exact")
+                .exit_code(1)
+                .retryable(false)
+                .description("Locator exact text is empty after normalization"),
+        )
+        .error(
+            ErrorMetadata::new("unnormalized_exact")
+                .exit_code(1)
+                .retryable(false)
+                .description("Locator exact text is not in normalized form"),
+        )
+        .error(
+            ErrorMetadata::new("invalid_source_name")
+                .exit_code(1)
+                .retryable(false)
+                .description("Source name is not a valid path component"),
+        )
+        .error(
+            ErrorMetadata::new("invalid_sha256")
+                .exit_code(1)
+                .retryable(false)
+                .description("SHA-256 value is not 64 lowercase hex characters"),
+        )
+        .error(
+            ErrorMetadata::new("invalid_id")
+                .exit_code(1)
+                .retryable(false)
+                .description("Summary ID is not safe for template expansion"),
+        )
+        .error(
+            ErrorMetadata::new("invalid_markdown_line")
+                .exit_code(1)
+                .retryable(false)
+                .description("Markdown line coordinate is invalid"),
+        )
+        .error(
+            ErrorMetadata::new("invalid_markdown_column")
+                .exit_code(1)
+                .retryable(false)
+                .description("Markdown column coordinate is invalid"),
+        )
+        .error(
+            ErrorMetadata::new("invalid_pdf_page")
+                .exit_code(1)
+                .retryable(false)
+                .description("PDF page number is invalid"),
+        )
+        .error(
+            ErrorMetadata::new("markdown_unit_missing")
+                .exit_code(1)
+                .retryable(false)
+                .description("No semantic unit at the recorded Markdown coordinates"),
+        )
+        .error(
+            ErrorMetadata::new("markdown_read_failed")
+                .exit_code(1)
+                .retryable(false)
+                .description("Markdown source file could not be read"),
+        )
+        .error(
+            ErrorMetadata::new("pdf_extraction_failed")
+                .exit_code(1)
+                .retryable(false)
+                .description("PDF text extraction failed"),
+        )
+        .error(
+            ErrorMetadata::new("empty_markdown_candidates")
+                .exit_code(1)
+                .retryable(false)
+                .description("No markdown template candidates for a source"),
+        )
+        .error(
+            ErrorMetadata::new("weak_section_only")
+                .exit_code(0)
+                .retryable(false)
+                .description("Every locator sits under a weak section heading (warning)"),
+        )
+        .error(
+            ErrorMetadata::new("source_hash_mismatch")
+                .exit_code(1)
+                .retryable(false)
+                .description("Source file SHA-256 disagrees with recorded hash"),
+        )
+        .error(
+            ErrorMetadata::new("source_mismatch")
+                .exit_code(1)
+                .retryable(false)
+                .description("Recorded source path does not match expected path"),
+        )
+        .error(
+            ErrorMetadata::new("source_read_failed")
+                .exit_code(1)
+                .retryable(false)
+                .description("Source file could not be read for hashing"),
+        )
+        .error(
+            ErrorMetadata::new("source_outside_repo")
+                .exit_code(1)
+                .retryable(false)
+                .description("Resolved source path escapes the corpus root"),
+        )
+        .error(
+            ErrorMetadata::new("source_unresolvable")
+                .exit_code(1)
+                .retryable(false)
+                .description("Source path cannot be resolved to a real path"),
         )
 }
 
@@ -981,20 +1125,56 @@ fn read_summary(corpus: &Corpus, id: &str) -> Result<crate::evidence::SummaryDoc
 }
 
 fn summary_ids(corpus: &Corpus) -> Result<Vec<String>> {
-    let directory = corpus.summaries_dir();
+    let template = corpus.summary_template();
+    let Some((prefix, suffix)) = template.split_once("{id}") else {
+        bail!("summary template missing {{id}} placeholder");
+    };
+
+    let scan_dir = corpus.summaries_dir();
     let mut ids = Vec::new();
-    for entry in fs::read_dir(&directory)
-        .with_context(|| format!("failed to read {}", directory.display()))?
-    {
+    walk_summaries(&scan_dir, prefix, suffix, corpus.root(), &mut ids)?;
+    ids.sort();
+    ids.dedup();
+    Ok(ids)
+}
+
+fn walk_summaries(
+    dir: &Path,
+    prefix: &str,
+    suffix: &str,
+    root: &Path,
+    ids: &mut Vec<String>,
+) -> Result<()> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(
+                anyhow::Error::new(error).context(format!("failed to read {}", dir.display()))
+            );
+        }
+    };
+    for entry in entries {
         let path = entry?.path();
-        if path.extension().and_then(|value| value.to_str()) == Some("yaml")
-            && let Some(id) = path.file_stem().and_then(|value| value.to_str())
-        {
-            ids.push(id.to_owned());
+        if path.is_dir() {
+            walk_summaries(&path, prefix, suffix, root, ids)?;
+        } else {
+            let relative = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            if let Some(id) = relative
+                .strip_prefix(prefix)
+                .and_then(|r| r.strip_suffix(suffix))
+                && !id.is_empty()
+                && !id.contains('/')
+            {
+                ids.push(id.to_owned());
+            }
         }
     }
-    ids.sort();
-    Ok(ids)
+    Ok(())
 }
 
 fn resolve_markdown_for(corpus: &Corpus, id: &str, source: &str) -> Result<PathBuf> {
