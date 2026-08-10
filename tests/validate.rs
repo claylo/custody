@@ -325,6 +325,7 @@ fn each_named_source_resolves_against_its_own_files() {
                 ],
             }],
         }),
+        review: None,
     };
 
     // Keyed by file name so a locator routed to the wrong source's PDF misses.
@@ -592,6 +593,7 @@ fn weak_section_does_not_fire_when_one_locator_is_not_weak() {
                 ],
             }],
         }),
+        review: None,
     };
 
     let report = validate_document(
@@ -733,6 +735,7 @@ impl Fixture {
                     }],
                 }],
             }),
+            review: None,
         }
     }
 }

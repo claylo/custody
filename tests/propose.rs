@@ -318,6 +318,7 @@ fn summary(claims: &[&str]) -> SummaryDocument {
         id: "smith-2019".to_owned(),
         claims: claims.iter().map(|claim| (*claim).to_owned()).collect(),
         evidence: None,
+        review: None,
     }
 }
 

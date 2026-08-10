@@ -72,6 +72,16 @@ impl Terms {
                 }
             }
         }
+        if let Some(review) = value.get_mut("review") {
+            rename(review, &self.claims, "claims", true)?;
+            if let Some(entries) = review.get_mut("claims").and_then(Value::as_array_mut) {
+                let hash_key = self.hash_key();
+                for entry in entries {
+                    rename(entry, &self.claim, "claim", true)?;
+                    rename(entry, &hash_key, "claim_sha256", true)?;
+                }
+            }
+        }
         Ok(())
     }
 
@@ -87,6 +97,14 @@ impl Terms {
                 }
             }
             drop(rename(evidence, "claims", &self.claims, false));
+        }
+        if let Some(review) = value.get_mut("review") {
+            if let Some(entries) = review.get_mut("claims").and_then(Value::as_array_mut) {
+                for entry in entries {
+                    self.localize_entry(entry);
+                }
+            }
+            drop(rename(review, "claims", &self.claims, false));
         }
         drop(rename(value, "claims", &self.claims, false));
     }

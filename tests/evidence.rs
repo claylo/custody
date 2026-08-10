@@ -216,6 +216,7 @@ fn reports_unknown_and_unused_sources() {
                 }],
             }],
         }),
+        review: None,
     };
     let issues = summary.validate_evidence_structure(&Terms::default());
 

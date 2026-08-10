@@ -4,7 +4,9 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::{hash::sha256_bytes, markdown::UnitKind, normalize::normalize, terms::Terms};
+use crate::{
+    hash::sha256_bytes, markdown::UnitKind, normalize::normalize, review::Review, terms::Terms,
+};
 
 /// The source name a document gets when it declares only one source pair.
 pub const DEFAULT_SOURCE: &str = "default";
@@ -16,6 +18,8 @@ pub struct SummaryDocument {
     pub claims: Vec<String>,
     #[serde(default)]
     pub evidence: Option<Evidence>,
+    #[serde(default)]
+    pub review: Option<Review>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
