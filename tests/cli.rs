@@ -27,6 +27,16 @@ fn receipts_with_path(corpus: &Path, args: &[&str], path: &Path) -> Output {
         .expect("receipts executes")
 }
 
+fn receipts_json(corpus: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_receipts"))
+        .arg("-C")
+        .arg(corpus)
+        .args(["--format", "json"])
+        .args(args)
+        .output()
+        .expect("receipts executes")
+}
+
 #[test]
 fn targeted_check_fails_when_evidence_is_missing() {
     let corpus = fixture_corpus();
@@ -342,6 +352,60 @@ evidence:
     );
 }
 
+#[test]
+fn propose_emits_candidates_for_claims_without_evidence() {
+    let temp = tempfile::tempdir().unwrap();
+    for path in ["summaries", "md/smith-2019", "pdfs"] {
+        fs::create_dir_all(temp.path().join(path)).unwrap();
+    }
+    fs::write(
+        temp.path().join("receipts.yaml"),
+        "cache:\n  root: \".cache/pdf-text\"\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("summaries/smith-2019.yaml"),
+        "id: smith-2019\nclaims:\n  - \"The rate was 67.5% in controls.\"\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("md/smith-2019/smith-2019.md"),
+        "The rate was 67.5% in the control group.\n",
+    )
+    .unwrap();
+    fs::write(temp.path().join("pdfs/smith-2019.pdf"), TEXT_PDF).unwrap();
+
+    let output = receipts_json(temp.path(), &["propose", "smith-2019"]);
+    assert!(output.status.success(), "{}", stderr(&output));
+
+    let stdout = stdout(&output);
+    let report: serde_json::Value = serde_json::from_str(&stdout).expect("propose emits JSON");
+    assert_eq!(report["id"], "smith-2019");
+    assert_eq!(report["claims"].as_array().unwrap().len(), 1);
+
+    let claim = &report["claims"][0];
+    assert_eq!(claim["claim"], 0);
+    assert_eq!(claim["required_tokens"], serde_json::json!(["67.5%"]));
+    assert_eq!(claim["uncovered_tokens"], serde_json::json!([]));
+    assert!(
+        !claim["candidates"].as_array().unwrap().is_empty(),
+        "the claim's token appears in both sources: {stdout}"
+    );
+
+    let candidate = &claim["candidates"][0];
+    assert_eq!(candidate["source"], "default");
+    assert_eq!(
+        candidate["exact"],
+        "The rate was 67.5% in the control group."
+    );
+    assert_eq!(candidate["coverage"]["matched"], 1);
+    assert_eq!(candidate["coverage"]["required"], 1);
+    assert_eq!(candidate["markdown"]["line"], 1);
+    assert_eq!(candidate["markdown"]["unit"], "paragraph");
+    assert_eq!(candidate["pdf"]["page"], 1);
+    assert_eq!(candidate["pdf"]["backend"], "mutool-native");
+}
+
 fn fixture_corpus() -> tempfile::TempDir {
     let temp = tempfile::tempdir().unwrap();
     for path in ["summaries", "md/missing-evidence", "pdfs"] {
@@ -375,6 +439,19 @@ const MINIMAL_PDF: &str = "%PDF-1.4\n\
     1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n\
     2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n\
     3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\n\
+    trailer<</Root 1 0 R>>\n";
+
+/// One page carrying a single line of native text, so `propose` can verify a
+/// candidate span against real `MuPDF` extraction rather than a stub.
+const TEXT_PDF: &str = "%PDF-1.4\n\
+    1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n\
+    2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n\
+    3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]\
+    /Resources<</Font<</F1 4 0 R>>>>/Contents 5 0 R>>endobj\n\
+    4 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n\
+    5 0 obj<</Length 72>>stream\n\
+    BT /F1 12 Tf 72 700 Td (The rate was 67.5% in the control group.) Tj ET\n\
+    endstream\nendobj\n\
     trailer<</Root 1 0 R>>\n";
 
 fn stdout(output: &Output) -> String {
