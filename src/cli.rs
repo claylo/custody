@@ -82,6 +82,9 @@ struct LocateArgs {
 #[derive(Debug, Args)]
 struct CheckArgs {
     ids: Vec<String>,
+    /// Require review entries with supported verdicts for all claims.
+    #[arg(long)]
+    require_review: bool,
 }
 
 #[derive(Debug, Args)]
@@ -89,6 +92,9 @@ struct AuditArgs {
     /// Treat summaries without evidence as invalid.
     #[arg(long)]
     strict: bool,
+    /// Require review entries with supported verdicts for all claims.
+    #[arg(long)]
+    require_review: bool,
     ids: Vec<String>,
 }
 
@@ -177,8 +183,15 @@ pub fn run() -> Result<()> {
     match cli.command {
         Command::Doctor => doctor(&corpus, json, quiet),
         Command::Locate(args) => locate(&corpus, &args, json),
-        Command::Check(args) => check(&corpus, &args.ids, json, quiet),
-        Command::Audit(args) => audit(&corpus, args.strict, &args.ids, json, quiet),
+        Command::Check(args) => check(&corpus, &args.ids, json, quiet, args.require_review),
+        Command::Audit(args) => audit(
+            &corpus,
+            args.strict,
+            args.require_review,
+            &args.ids,
+            json,
+            quiet,
+        ),
         Command::Propose(args) => propose_cmd(&corpus, &args, json, quiet),
     }
 }
@@ -414,7 +427,13 @@ fn locate_pdf(
     }
 }
 
-fn check(corpus: &Corpus, ids: &[String], json: bool, quiet: bool) -> Result<()> {
+fn check(
+    corpus: &Corpus,
+    ids: &[String],
+    json: bool,
+    quiet: bool,
+    require_review: bool,
+) -> Result<()> {
     let targeted = !ids.is_empty();
     let ids = if targeted {
         ids.to_vec()
@@ -452,7 +471,7 @@ fn check(corpus: &Corpus, ids: &[String], json: bool, quiet: bool) -> Result<()>
             report.skipped += 1;
             continue;
         }
-        let validation = validate_document(corpus, &summary, &tools, false);
+        let validation = validate_document(corpus, &summary, &tools, require_review);
         if validation.is_valid() {
             report.valid += 1;
         } else {
@@ -470,7 +489,17 @@ fn check(corpus: &Corpus, ids: &[String], json: bool, quiet: bool) -> Result<()>
     Ok(())
 }
 
-fn audit(corpus: &Corpus, strict: bool, ids: &[String], json: bool, quiet: bool) -> Result<()> {
+// Four independent flags, not a state machine in disguise; an enum wrapper
+// would just relocate the boolean blindness clippy is warning about.
+#[allow(clippy::fn_params_excessive_bools)]
+fn audit(
+    corpus: &Corpus,
+    strict: bool,
+    require_review: bool,
+    ids: &[String],
+    json: bool,
+    quiet: bool,
+) -> Result<()> {
     let tools = PdfTools::new(corpus.cache_root().to_path_buf(), corpus.ocr_config());
     let mut report = AuditReport {
         valid: 0,
@@ -526,7 +555,7 @@ fn audit(corpus: &Corpus, strict: bool, ids: &[String], json: bool, quiet: bool)
             });
             continue;
         }
-        let validation = validate_document(corpus, &summary, &tools, false);
+        let validation = validate_document(corpus, &summary, &tools, require_review);
         if validation.is_valid() {
             report.valid += 1;
             report.summaries.push(AuditSummary {
