@@ -58,6 +58,8 @@ enum Command {
     Check(CheckArgs),
     /// Inventory valid, missing, and invalid evidence records.
     Audit(AuditArgs),
+    /// Suggest candidate locators for claims lacking evidence.
+    Propose(ProposeArgs),
 }
 
 #[derive(Debug, Args)]
@@ -88,6 +90,17 @@ struct AuditArgs {
     #[arg(long)]
     strict: bool,
     ids: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+struct ProposeArgs {
+    ids: Vec<String>,
+    /// Process all claims, not just those without evidence.
+    #[arg(long)]
+    all: bool,
+    /// Maximum candidates per claim.
+    #[arg(long, default_value = "3")]
+    candidates: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -166,6 +179,7 @@ pub fn run() -> Result<()> {
         Command::Locate(args) => locate(&corpus, &args, json),
         Command::Check(args) => check(&corpus, &args.ids, json, quiet),
         Command::Audit(args) => audit(&corpus, args.strict, &args.ids, json, quiet),
+        Command::Propose(args) => propose_cmd(&corpus, &args, json, quiet),
     }
 }
 
@@ -544,6 +558,133 @@ fn audit(corpus: &Corpus, strict: bool, ids: &[String], json: bool, quiet: bool)
         bail!("evidence audit failed");
     }
     Ok(())
+}
+
+fn propose_cmd(corpus: &Corpus, args: &ProposeArgs, json: bool, quiet: bool) -> Result<()> {
+    let ids = if args.ids.is_empty() {
+        summary_ids(corpus)?
+    } else {
+        args.ids.clone()
+    };
+    let tools = PdfTools::new(corpus.cache_root().to_path_buf(), corpus.ocr_config());
+
+    for id in &ids {
+        let summary = read_summary(corpus, id)?;
+        if summary.id != *id {
+            bail!(
+                "summary ID {:?} does not match filename ID {:?}",
+                summary.id,
+                id
+            );
+        }
+        let report =
+            crate::propose::propose_document(corpus, &summary, &tools, args.candidates, args.all)?;
+        if json {
+            print_json(&report)?;
+        } else if !quiet {
+            print_propose_human(&report, &summary, corpus.terms());
+        }
+    }
+    Ok(())
+}
+
+fn print_propose_human(
+    report: &crate::propose::ProposalReport,
+    summary: &crate::evidence::SummaryDocument,
+    terms: &Terms,
+) {
+    for proposal in &report.claims {
+        let claim_text = summary
+            .claims
+            .get(proposal.claim)
+            .map_or("<unknown>", String::as_str);
+        println!(
+            "# {} {}  {:?}",
+            terms.claim,
+            proposal.claim,
+            truncate(claim_text, CLAIM_PREVIEW_CHARS)
+        );
+        if !proposal.required_tokens.is_empty() {
+            println!(
+                "#   required tokens: {}",
+                proposal.required_tokens.join(", ")
+            );
+        }
+        if !proposal.uncovered_tokens.is_empty() {
+            println!(
+                "#   uncovered tokens: {}",
+                proposal.uncovered_tokens.join(", ")
+            );
+        }
+
+        for (index, candidate) in proposal.candidates.iter().enumerate() {
+            let section = if candidate.markdown.section.is_empty() {
+                String::new()
+            } else {
+                format!(" [{}]", candidate.markdown.section.join(" > "))
+            };
+            let pdf = candidate.pdf.as_ref().map_or_else(
+                || "  (no native PDF match)".to_owned(),
+                |pdf| format!("  p.{} {}", pdf.page, pdf.backend.as_str()),
+            );
+            println!(
+                "#   [{}] {}/{}  {}  md:{}:{} {}{section}{pdf}",
+                candidate_label(index),
+                candidate.coverage.matched,
+                candidate.coverage.required,
+                candidate.source,
+                candidate.markdown.line,
+                candidate.markdown.column,
+                candidate.markdown.unit.as_str(),
+            );
+            println!("#       {:?}", candidate.exact);
+        }
+
+        if let Some(first) = proposal.candidates.first()
+            && let Some(pdf) = first.pdf.as_ref()
+        {
+            // `--claim` and `--source` are fixed flag names; only prose follows
+            // the configured vocabulary, so the pasted command always runs.
+            let source = if first.source == DEFAULT_SOURCE {
+                String::new()
+            } else {
+                format!(" --source {:?}", first.source)
+            };
+            println!("#");
+            println!("#   accept [{}]:", candidate_label(0));
+            println!(
+                "#     receipts locate {} --claim {} \\",
+                report.id, proposal.claim
+            );
+            println!(
+                "#       --exact {:?} --page {}{source}",
+                first.exact, pdf.page
+            );
+        }
+        println!();
+    }
+}
+
+/// Longest claim preview kept intact before an ellipsis.
+const CLAIM_PREVIEW_CHARS: usize = 72;
+
+/// Candidate labels run `a`..`z`, then fall back to the ordinal.
+fn candidate_label(index: usize) -> String {
+    match u8::try_from(index) {
+        Ok(offset) if offset < 26 => char::from(b'a' + offset).to_string(),
+        _ => index.to_string(),
+    }
+}
+
+/// Truncate on a character boundary, so non-ASCII claims never panic.
+fn truncate(text: &str, max_chars: usize) -> String {
+    let mut chars = text.chars();
+    let head: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_some() {
+        format!("{head}...")
+    } else {
+        head
+    }
 }
 
 fn read_summary(corpus: &Corpus, id: &str) -> Result<crate::evidence::SummaryDocument> {

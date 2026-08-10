@@ -16,6 +16,21 @@ pub enum UnitKind {
     CodeBlock,
 }
 
+impl UnitKind {
+    /// The serialized name, so human output and JSON agree.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Heading => "heading",
+            Self::Paragraph => "paragraph",
+            Self::ListItem => "list_item",
+            Self::Blockquote => "blockquote",
+            Self::TableCell => "table_cell",
+            Self::CodeBlock => "code_block",
+        }
+    }
+}
+
 /// Normalized visible text and source coordinates for one semantic unit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarkdownUnit {
