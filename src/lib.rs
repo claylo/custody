@@ -9,6 +9,7 @@ pub mod markdown;
 pub mod normalize;
 pub mod output;
 pub mod pdf;
+pub mod propose;
 pub mod sections;
 pub mod terms;
 pub mod tokens;
