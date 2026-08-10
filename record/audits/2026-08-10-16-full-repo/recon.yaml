@@ -1,0 +1,400 @@
+meta:
+  project: receipts
+  commit: 3c98f512425a89876c82fe52d98d21ba33ee6a55
+  timestamp: 2026-08-10T16:49:24-04:00
+  scope: >-
+    Full repository audit — Rust source, tests, dependencies, configuration,
+    and documented behavior. Binary-size attribution was not evaluated because
+    no cargo-bloat artifact was collected; cargo-geiger's transitive census was
+    incomplete, while crate-local unsafe and FFI census was complete and clean.
+structure:
+  root: /Users/clay/source/claylo/receipts
+  total_files: 46
+  total_lines: 11825
+  languages:
+    - language: JSON
+      files: 2
+      lines: 41
+      percentage: 0.35
+    - language: Just
+      files: 1
+      lines: 68
+      percentage: 0.58
+    - language: Markdown
+      files: 8
+      lines: 3552
+      percentage: 30.04
+    - language: Rust
+      files: 32
+      lines: 8100
+      percentage: 68.5
+    - language: TOML
+      files: 2
+      lines: 38
+      percentage: 0.32
+    - language: YAML
+      files: 1
+      lines: 26
+      percentage: 0.22
+  modules:
+    - name: cli
+      path: src/cli.rs
+      files: 3
+      lines: 1087
+      entry_points:
+        - name: main
+          path: src/main.rs
+          line: 1
+          kind: main
+      dependencies: []
+    - name: configuration-and-corpus
+      path: src/config.rs
+      files: 2
+      lines: 519
+      dependencies: []
+    - name: evidence-and-review
+      path: src/evidence.rs
+      files: 3
+      lines: 671
+      dependencies: []
+    - name: markdown-and-terms
+      path: src/markdown.rs
+      files: 6
+      lines: 840
+      dependencies: []
+    - name: pdf-extraction
+      path: src/pdf/
+      files: 4
+      lines: 821
+      dependencies: []
+    - name: proposal-and-validation
+      path: src/validate.rs
+      files: 2
+      lines: 797
+      dependencies: []
+    - name: public-library-surface
+      path: src/lib.rs
+      files: 1
+      lines: 17
+      dependencies: []
+    - name: integration-tests
+      path: tests/
+      files: 15
+      lines: 3825
+      dependencies: []
+dependencies:
+  manifest: /Users/clay/source/claylo/receipts/Cargo.toml
+  items:
+    - name: anyhow
+      version: ^1.0
+      kind: direct
+    - name: clap
+      version: ^4.6
+      kind: direct
+    - name: directories
+      version: ^6.0
+      kind: direct
+    - name: librebar
+      version: =0.6.0
+      kind: direct
+    - name: pulldown-cmark
+      version: ^0.13
+      kind: direct
+    - name: serde
+      version: ^1.0
+      kind: direct
+    - name: serde_json
+      version: ^1.0
+      kind: direct
+    - name: sha2
+      version: ^0.11
+      kind: direct
+    - name: tempfile
+      version: ^3.27
+      kind: dev
+churn:
+  period: last 12 months
+  hotspots:
+    - path: src/lib.rs
+      commits: 6
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 6
+    - path: tests/cli.rs
+      commits: 3
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 3
+    - path: src/validate.rs
+      commits: 3
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 3
+    - path: src/pdf/mod.rs
+      commits: 3
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 3
+    - path: src/evidence.rs
+      commits: 3
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 3
+    - path: src/config.rs
+      commits: 3
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 3
+    - path: src/cli.rs
+      commits: 3
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 3
+    - path: README.md
+      commits: 3
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 3
+    - path: tests/validate.rs
+      commits: 2
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 2
+    - path: tests/tesseract_cache.rs
+      commits: 2
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 2
+    - path: tests/mutool.rs
+      commits: 2
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 2
+    - path: tests/fixtures/tesseract-rotated-table.tsv
+      commits: 2
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 2
+    - path: tests/evidence.rs
+      commits: 2
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 2
+    - path: src/pdf/tesseract.rs
+      commits: 2
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 2
+    - path: src/pdf/mutool.rs
+      commits: 2
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 2
+  recent_activity:
+    total_commits: 52
+    active_authors: 1
+    files_changed: 64
+testing:
+  runner: just
+  command: just test
+  sources:
+    - .config/scrat.toml
+  notes: "`.config/nextest.toml` is present — the wrapper command likely invokes `cargo nextest run`.
+    Do not invoke `cargo test` directly: env-mutating tests assume nextest process isolation."
+boundaries:
+  - name: corpus-filesystem
+    description: "Configuration discovery and corpus path resolution determine which summaries, Markdown files, PDFs, and cache entries are read."
+    modules: [configuration-and-corpus, evidence-and-review, proposal-and-validation]
+    notes: "Primary trust boundary: user-controlled identifiers and templates must remain inside the configured corpus."
+  - name: external-pdf-tools
+    description: "MuPDF and Tesseract subprocesses consume canonical PDFs and return structured or OCR text."
+    modules: [pdf-extraction]
+    notes: "Process invocation, output parsing, timeouts, and cache identity determine validation correctness."
+  - name: summary-deserialization
+    description: "YAML, JSON, and TOML configuration plus YAML summary evidence enter typed validation structures."
+    modules: [configuration-and-corpus, evidence-and-review]
+    notes: "Unknown-field policy and hash binding are the semantic integrity boundary."
+  - name: agent-cli-contract
+    description: "CLI Spec JSON, command output, exit codes, and shell completions expose the machine-facing integration surface."
+    modules: [cli, public-library-surface]
+    notes: "README promises and schema output must match runtime acceptance."

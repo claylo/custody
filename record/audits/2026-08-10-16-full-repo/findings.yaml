@@ -1,0 +1,1224 @@
+---
+audit_date: 2026-08-10
+scope: "Full repository audit — Rust source, tests, dependencies, configuration, and documented behavior"
+commit: 3c98f512425a89876c82fe52d98d21ba33ee6a55
+assessment: |
+  receipts has a disciplined core: unsafe code is forbidden, Clippy and unused-dependency
+  checks pass, and the advisory, license, ban, and source-policy gates are clean. Its main
+  risks sit at the boundaries between validated configuration and public construction,
+  between runtime output and the advertised CLI Spec, and in repeated Markdown/PDF work
+  across corpus-wide commands. Eight significant findings include two invariant bypasses,
+  silent proposal-source failures, contract-invalid multi-document JSON, incomplete summary
+  discovery, and two scaling paths that multiply work by pages or candidates. The fixes are
+  localized; the architecture does not need replacement.
+
+narratives:
+  - slug: configuration-cache-integrity
+    title: "The Configuration and Cache Integrity Surface"
+    thesis: "File-loaded configuration is carefully checked, but public construction and deserialization can bypass the invariants that keep corpus and cache paths contained."
+    verdict: "The filesystem boundary is sound on the documented CLI path, yet the library API represents validated and unvalidated state with the same public types. Make those states unforgeable, then remove the one eager index fallback; the existing validation logic can do most of the work."
+    flow:
+      - id: configuration-input
+        label: "Configuration input"
+        type: start
+      - id: validate-config
+        label: "Validate templates"
+        type: decision
+        no: reject-config
+      - id: build-corpus
+        label: "Build Corpus"
+        type: process
+        findings:
+          - slug: unvalidated-discovered-state
+            label: "Validation bypass"
+      - id: resolve-source
+        label: "Resolve source path"
+        type: process
+        findings:
+          - slug: unchecked-empty-markdown-candidates-panic
+            label: "Empty-list panic"
+      - id: cache-manifest
+        label: "Build cache key"
+        type: process
+        findings:
+          - slug: cache-manifest-invariants-are-bypassable
+            label: "Forgeable manifest"
+      - id: filesystem
+        label: "Read or write file"
+        type: end
+      - id: reject-config
+        label: "Reject configuration"
+        type: end
+        spine: false
+
+    findings:
+      - slug: cache-manifest-invariants-are-bypassable
+        title: "CacheManifest exposes the fields its constructors validate"
+        concern: significant
+        locations:
+          - path: src/pdf/cache.rs
+            start_line: 27
+            end_line: 35
+        evidence: |2
+          /// Manifest that makes a cached TSV self-validating.
+          #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+          #[serde(deny_unknown_fields)]
+          pub struct CacheManifest {
+              pub pdf_sha256: String,
+              pub page: usize,
+              pub profile: OcrProfile,
+              pub toolchain_sha256: String,
+              pub render_rotation_degrees: i16,
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "2-9"
+            type: del
+            label: "Deserialization and public fields bypass validated constructors"
+        mechanism: |
+          `CacheManifest::new` and `with_render_rotation` validate the hash, page,
+          profile name, derived toolchain hash, and rotation, but callers can bypass
+          both methods through a struct literal, field mutation, or derived
+          deserialization. `OcrCache::entry_dir` later joins manifest components into
+          filesystem paths, so an invalid public value can escape the configured cache
+          root before `store` creates directories and writes files.
+        remediation: |
+          Make manifest fields private, expose read-only accessors, and deserialize
+          through a private raw representation followed by `TryFrom` validation.
+          Represent filesystem components and one-based pages with validated newtypes.
+        temporal:
+          introduced: 2026-07-29
+          last_modified: 2026-07-30
+          commit_count: 2
+          monthly_commits: [0,0,0,0,0,0,0,0,0,0,2,0]
+        chains:
+          enables: []
+          enabled_by: []
+          related: [unvalidated-discovered-state]
+        effort: medium
+        effort_notes: "Requires an API adjustment, validated deserialization, and traversal regression tests."
+
+      - slug: unvalidated-discovered-state
+        title: "from_discovered accepts configuration without preserving its validation proof"
+        concern: moderate
+        locations:
+          - path: src/corpus.rs
+            start_line: 29
+            end_line: 56
+        evidence: |2
+              /// Build a corpus from an already-resolved configuration.
+              pub fn from_discovered(discovered: Discovered) -> Result<Self> {
+                  let Discovered {
+                      config,
+                      root,
+                      config_file,
+                  } = discovered;
+                  let cache_root = match config.cache.root.as_deref() {
+                      Some(value) => {
+                          let candidate = PathBuf::from(value);
+                          if candidate.is_absolute() {
+                              candidate
+                          } else {
+                              root.join(candidate)
+                          }
+                      }
+                      None => config::platform_cache_root()?,
+                  };
+                  Ok(Self {
+                      root,
+                      layout: config.corpus,
+                      cache_root,
+                      config_file,
+                      terms: config.terms,
+                      ocr_config: config.pdf.ocr,
+                      coverage_config: config.coverage,
+                      sections_config: config.sections,
+                  })
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "2-7"
+            type: mark
+            label: "Public entry point destructures caller-controlled state"
+          - lines: "19-28"
+            type: del
+            label: "Configuration is stored without revalidation"
+        mechanism: |
+          `config::load` validates templates and OCR settings, but `Discovered`
+          exposes its `Config` publicly and `from_discovered` never revalidates it.
+          A caller can construct or mutate `Discovered` with absolute,
+          parent-traversing, or empty templates and obtain a `Corpus` that violates
+          the documented containment contract.
+        remediation: |
+          Re-run the shared configuration validator inside `from_discovered` and make
+          `Discovered` opaque, or introduce a private validated-state type that only
+          checked constructors can produce. Add traversal and empty-template tests.
+        temporal:
+          introduced: 2026-07-29
+          last_modified: 2026-08-09
+          commit_count: 6
+          monthly_commits: [0,0,0,0,0,0,0,0,0,0,2,4]
+        chains:
+          enables: [unchecked-empty-markdown-candidates-panic]
+          enabled_by: []
+          related: [cache-manifest-invariants-are-bypassable]
+        effort: small
+        effort_notes: "The existing validator can be reused; the public construction story needs focused tests."
+
+      - slug: unchecked-empty-markdown-candidates-panic
+        title: "Programmatic corpus configuration can trigger an indexing panic"
+        concern: significant
+        locations:
+          - path: src/validate.rs
+            start_line: 84
+            end_line: 87
+          - path: src/corpus.rs
+            start_line: 29
+            end_line: 56
+        evidence: |2
+                  let markdown_path = markdown_candidates
+                      .iter()
+                      .find(|path| path.is_file())
+                      .unwrap_or(&markdown_candidates[0]);
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "4"
+            type: del
+            label: "Empty candidate vectors panic at index zero"
+        mechanism: |
+          File-loaded configuration rejects an empty Markdown-template list, but the
+          public constructor accepts an unchecked `Discovered`. With an empty list,
+          the eager `unwrap_or` fallback evaluates `markdown_candidates[0]` and panics
+          instead of returning a validation issue.
+        remediation: |
+          Validate every `Discovered` inside `Corpus::from_discovered`, and replace
+          the direct index with `first()` plus a structured configuration error or
+          validation issue. Add a public-constructor regression test.
+        temporal:
+          introduced: 2026-07-30
+          last_modified: 2026-08-10
+          commit_count: 11
+          monthly_commits: [0,0,0,0,0,0,0,0,0,0,3,8]
+        chains:
+          enables: []
+          enabled_by: [unvalidated-discovered-state]
+          related: [public-apis-erase-error-types]
+        effort: small
+        effort_notes: "Reuse configuration validation at the constructor boundary and remove one direct index."
+
+  - slug: error-architecture
+    title: "The Error Architecture Surface"
+    thesis: "Most failures remain explicit, but proposal generation and OCR cleanup erase operational errors while public APIs erase their categories."
+    verdict: "The dominant error path is straightforward to repair because the affected functions already return `Result`. Propagate source failures, define cleanup policy, and keep `anyhow` at the CLI edge; none requires restructuring the validation model."
+    flow:
+      - id: configured-source
+        label: "Configured source"
+        type: start
+      - id: read-markdown
+        label: "Read Markdown"
+        type: process
+        findings:
+          - slug: propose-silently-suppresses-source-failures
+            label: "Read failure hidden"
+      - id: extract-pdf
+        label: "Extract PDF text"
+        type: process
+        findings:
+          - slug: propose-silently-suppresses-source-failures
+            label: "Provider error hidden"
+      - id: generate-report
+        label: "Generate report"
+        type: process
+      - id: cleanup-images
+        label: "Remove OCR images"
+        type: process
+        findings:
+          - slug: ocr-temporary-file-cleanup-errors-discarded
+            label: "Cleanup ignored"
+      - id: return-result
+        label: "Return public Result"
+        type: end
+        findings:
+          - slug: public-apis-erase-error-types
+            label: "Categories erased"
+
+    findings:
+      - slug: propose-silently-suppresses-source-failures
+        title: "Proposal generation converts source failures into successful empty results"
+        concern: significant
+        locations:
+          - path: src/propose.rs
+            start_line: 135
+            end_line: 155
+        evidence: |2
+              for source_name in corpus.source_names() {
+                  let markdown_candidates = corpus.markdown_candidates_for(&summary.id, &source_name)?;
+                  if let Some(path) = markdown_candidates.iter().find(|path| path.is_file())
+                      && let Ok(markdown) = fs::read_to_string(path)
+                  {
+                      source_units.insert(source_name.clone(), parse_units(&markdown));
+                  }
+
+                  let pdf_path = corpus.pdf_path_for(&summary.id, &source_name)?;
+                  if pdf_path.is_file()
+                      && let Ok(pages) = provider.native_pages(&pdf_path, None)
+                  {
+                      source_pages.insert(
+                          source_name,
+                          pages
+                              .into_iter()
+                              .map(|page| (page.page, normalize(&page.text)))
+                              .collect(),
+                      );
+                  }
+              }
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "3-4"
+            type: del
+            label: "Missing files and Markdown read errors are suppressed"
+          - lines: "10-11"
+            type: del
+            label: "Missing PDFs and extraction errors are suppressed"
+        mechanism: |
+          Missing source files, Markdown read failures, missing PDFs, and native
+          extraction failures all skip their source without an error or diagnostic.
+          `propose_document` then returns `Ok(ProposalReport)` with fewer or no
+          candidates, making operational failure indistinguishable from a genuine
+          absence of evidence.
+        remediation: |
+          Require each configured source to resolve and propagate read/extraction
+          failures with source and path context. If partial output is intentional,
+          add typed per-source diagnostics and fail the CLI when any configured
+          source could not be evaluated.
+        temporal:
+          introduced: 2026-08-09
+          last_modified: 2026-08-09
+          commit_count: 2
+          monthly_commits: [0,0,0,0,0,0,0,0,0,0,0,2]
+        chains:
+          enables: []
+          enabled_by: []
+          related: [public-apis-erase-error-types]
+        effort: small
+        effort_notes: "The function already returns Result; add propagation and failure-path tests."
+
+      - slug: ocr-temporary-file-cleanup-errors-discarded
+        title: "OCR temporary-file cleanup failures are silently discarded"
+        concern: moderate
+        locations:
+          - path: src/pdf/tesseract.rs
+            start_line: 246
+            end_line: 250
+        evidence: |2
+                  Ok::<_, anyhow::Error>(tsv)
+              })();
+              let _ = fs::remove_file(&initial);
+              let _ = fs::remove_file(&rotated);
+              let tsv = result?;
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "3-4"
+            type: del
+            label: "Both filesystem errors are discarded"
+        mechanism: |
+          Permission changes, filesystem faults, or concurrent interference can make
+          either removal fail. Both results are dropped without a diagnostic, so
+          repeated OCR runs can accumulate page images while callers receive a
+          successful extraction result.
+        remediation: |
+          Centralize temporary-image cleanup in a guard or explicit helper. Propagate
+          cleanup failure after successful OCR; when preserving an earlier extraction
+          error, attach cleanup failure as additional context.
+        temporal:
+          introduced: 2026-07-29
+          last_modified: 2026-08-09
+          commit_count: 3
+          monthly_commits: [0,0,0,0,0,0,0,0,0,0,2,1]
+        chains:
+          enables: []
+          enabled_by: []
+          related: [propose-silently-suppresses-source-failures]
+        effort: small
+        effort_notes: "Localize cleanup policy around the existing result capture and add one failure test."
+
+      - slug: public-apis-erase-error-types
+        title: "Public library APIs erase failure categories behind anyhow::Error"
+        concern: advisory
+        locations:
+          - path: src/output.rs
+            start_line: 1
+            end_line: 6
+          - path: src/pdf/mod.rs
+            start_line: 82
+            end_line: 87
+          - path: src/corpus.rs
+            start_line: 23
+            end_line: 30
+          - path: src/evidence.rs
+            start_line: 131
+            end_line: 137
+        evidence: |2
+          use anyhow::Result;
+          use serde::Serialize;
+
+          /// Print any serializable report as stable pretty JSON.
+          pub fn print_json(value: &impl Serialize) -> Result<()> {
+              println!("{}", serde_json::to_string_pretty(value)?);
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "1"
+            type: mark
+            label: "Application-oriented error type in a public module"
+          - lines: "5"
+            type: del
+            label: "Public function exposes the erased error type"
+        mechanism: |
+          Public corpus, parsing, output, cache, extraction, and provider methods use
+          `anyhow::Result`. Callers cannot exhaustively distinguish invalid input,
+          missing tools, subprocess failure, filesystem failure, or serialization
+          failure without inspecting display strings.
+        remediation: |
+          Define stable typed errors at configuration, corpus, evidence, and PDF
+          boundaries, preserving underlying sources. Let the CLI convert domain errors
+          into `anyhow::Error` only at the application edge.
+        temporal:
+          introduced: 2026-07-30
+          last_modified: 2026-07-30
+          commit_count: 1
+          monthly_commits: [0,0,0,0,0,0,0,0,0,0,1,0]
+        chains:
+          enables: []
+          enabled_by: []
+          related:
+            - unchecked-empty-markdown-candidates-panic
+            - propose-silently-suppresses-source-failures
+        effort: medium
+        effort_notes: "Multiple public signatures need coordinated migration and compatibility planning."
+
+  - slug: dependency-reachability
+    title: "The Dependency Reachability Surface"
+    thesis: "The dependency tree is advisory-clean and fully used, but two default-feature sets compile code that receipts never calls."
+    verdict: "RustSec, license, ban, source, Clippy, machete, and udeps checks are clean. Narrowing Librebar and pulldown-cmark features would remove unused subsystems; binary-size attribution was not measured, so no size claim is made."
+    findings:
+      - slug: unscoped-librebar-default-features
+        title: "Librebar defaults compile an unused cache subsystem"
+        concern: moderate
+        locations:
+          - path: Cargo.toml
+            start_line: 16
+            end_line: 16
+        evidence: |2
+          librebar = { version = "=0.6.0", features = ["cli", "config", "crash", "diagnostics"] }
+        evidence_lang: toml
+        evidence_markers:
+          - lines: "1"
+            type: mark
+            label: "Default features remain enabled in addition to explicit features"
+        mechanism: |
+          Cargo enables dependency defaults unless `default-features = false` is set.
+          Librebar's explicit `diagnostics` feature already activates its logging
+          closure; the dependency defaults add the cache feature beyond that explicit
+          set. Source usage does not reach the cache API, so the default expands compile
+          work and reachable dependency surface without exercised behavior.
+        remediation: |
+          Set `default-features = false` while preserving the existing explicit feature
+          list. Regenerate the lockfile, inspect `cargo tree -e features -i librebar`,
+          and run the normal repository check gate. Treat removal of explicitly selected
+          `diagnostics` as a separate decision after confirming the intended crash path.
+        temporal:
+          introduced: 2026-07-29
+          last_modified: 2026-08-10
+          commit_count: 4
+          monthly_commits: [0,0,0,0,0,0,0,0,0,0,1,3]
+        chains:
+          enables: []
+          enabled_by: []
+          related: [pulldown-cmark-unused-default-features]
+        effort: small
+        effort_notes: "One manifest edit plus lockfile regeneration and focused feature verification."
+
+      - slug: pulldown-cmark-unused-default-features
+        title: "Pulldown-cmark enables HTML rendering and CLI parsing for parser-only use"
+        concern: advisory
+        locations:
+          - path: Cargo.toml
+            start_line: 17
+            end_line: 17
+        evidence: |2
+          pulldown-cmark = "0.13"
+        evidence_lang: toml
+        evidence_markers:
+          - lines: "1"
+            type: mark
+            label: "Default features are implicitly enabled"
+        mechanism: |
+          Pulldown-cmark enables `getopts` and `html` by default, while receipts uses
+          only event-parser APIs. The graph consequently compiles CLI parsing and HTML
+          rendering support for functionality this crate does not call.
+        remediation: |
+          Declare `{ version = "0.13", default-features = false }`, run the Markdown
+          parser tests, and confirm the narrower graph with `cargo tree -e features`.
+        temporal:
+          introduced: 2026-07-29
+          last_modified: 2026-08-10
+          commit_count: 4
+          monthly_commits: [0,0,0,0,0,0,0,0,0,0,1,3]
+        chains:
+          enables: []
+          enabled_by: []
+          related: [unscoped-librebar-default-features]
+        effort: trivial
+        effort_notes: "One declaration change; existing Markdown parser tests cover consumed APIs."
+
+  - slug: repeated-work-performance
+    title: "The Repeated-Work Performance Surface"
+    thesis: "Corpus-wide validation repeats prefix scans, subprocess probes, allocations, and candidate verification at page-and-candidate cardinality."
+    verdict: "The two largest costs are structural: OCR cache hits still spawn tools, and proposal ranking verifies the entire candidate set before applying its limit. The remaining parser/allocation findings are local reductions that become worthwhile because they sit inside those repeated paths."
+    flow:
+      - id: corpus-command
+        label: "Corpus command"
+        type: start
+      - id: parse-markdown
+        label: "Parse Markdown units"
+        type: process
+        findings:
+          - slug: markdown-coordinate-resolution-rescans-prefixes
+            label: "Rescan prefixes"
+      - id: score-candidates
+        label: "Score candidates"
+        type: process
+        findings:
+          - slug: case-insensitive-token-check-allocates-per-comparison
+            label: "Lowercase allocs"
+      - id: verify-candidates
+        label: "Verify against PDF"
+        type: process
+        findings:
+          - slug: proposal-ranking-verifies-unbounded-candidate-set
+            label: "Verify before cap"
+      - id: probe-tools
+        label: "Probe OCR tools"
+        type: process
+        findings:
+          - slug: ocr-cache-hit-spawns-version-probes
+            label: "2 probes per page"
+      - id: parse-tsv
+        label: "Parse cached TSV"
+        type: process
+        findings:
+          - slug: tesseract-tsv-allocates-three-vectors-per-row
+            label: "3 vectors per row"
+      - id: return-result
+        label: "Return deterministic result"
+        type: end
+
+    findings:
+      - slug: ocr-cache-hit-spawns-version-probes
+        title: "Every OCR cache lookup launches two version-probe subprocesses"
+        concern: significant
+        locations:
+          - path: src/pdf/tesseract.rs
+            start_line: 206
+            end_line: 223
+        evidence: |2
+              let lang = tesseract.lang();
+              let dpi = tesseract.dpi();
+              let psm = tesseract.psm();
+              let profile = OcrProfile {
+                  name: profile_name(lang, dpi),
+                  language: lang.to_owned(),
+                  dpi,
+                  page_segmentation_mode: psm,
+                  mutool_version: mutool.version()?,
+                  tesseract_version: tesseract.version()?,
+                  render_command: render_command(dpi),
+                  orientation_command: ORIENTATION_COMMAND.to_owned(),
+                  recognition_command: recognition_command(lang, psm),
+              };
+              let manifest = CacheManifest::new(pdf_sha256.to_owned(), page, profile)?;
+              if let Some(tsv) = cache.load(&manifest)? {
+                  return extracted_page(page, &tsv);
+              }
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "9-10"
+            type: del
+            label: "Both tools are started for every OCR page request"
+          - lines: "15-18"
+            type: mark
+            label: "Cache lookup happens after both probes"
+        mechanism: |
+          `check` and `audit` reuse one provider but invoke this path for every unique
+          OCR-backed page. Each call runs `mutool -v` and `tesseract --version` before
+          consulting the cache, so validating N cached pages still launches 2N
+          subprocesses and defeats the cache's low-latency purpose.
+        remediation: |
+          Resolve tool versions and the immutable OCR profile once per provider,
+          lazily if construction must remain infallible, and reuse the profile when
+          deriving page manifests.
+        temporal:
+          introduced: 2026-07-29
+          last_modified: 2026-08-09
+          commit_count: 3
+          monthly_commits: [0,0,0,0,0,0,0,0,0,0,2,1]
+        chains:
+          enables: []
+          enabled_by: []
+          related: [tesseract-tsv-allocates-three-vectors-per-row]
+        effort: medium
+        effort_notes: "Profile caching must preserve error propagation and remain compatible with test doubles."
+
+      - slug: proposal-ranking-verifies-unbounded-candidate-set
+        title: "Proposal ranking verifies every candidate before applying the output limit"
+        concern: significant
+        locations:
+          - path: src/propose.rs
+            start_line: 157
+            end_line: 194
+        evidence: |2
+              let mut claims = Vec::new();
+              for (index, claim_text) in summary.claims.iter().enumerate() {
+                  if !all_claims && settled.contains(&index) {
+                      continue;
+                  }
+
+                  let claim_tokens = tokens::extract(claim_text);
+                  let mut candidates = Vec::new();
+                  for (source_name, units) in &source_units {
+                      let pages = source_pages.get(source_name);
+                      for raw in generate_candidates(source_name, units, &claim_tokens) {
+                          // A span the reader cannot find in the PDF is not evidence.
+                          let Some(page) = pages.and_then(|pages| verify_pdf(pages, &raw.exact)) else {
+                              continue;
+                          };
+                          candidates.push(Candidate {
+                              source: raw.source,
+                              exact: raw.exact,
+                              coverage: CoverageScore {
+                                  matched: raw.matched,
+                                  required: claim_tokens.required.len(),
+                              },
+                              markdown: MarkdownMatch {
+                                  line: raw.line,
+                                  column: raw.column,
+                                  unit: raw.unit,
+                                  section: raw.section,
+                              },
+                              pdf: Some(PdfMatch {
+                                  page,
+                                  backend: PdfBackend::MutoolNative,
+                              }),
+                          });
+                      }
+                  }
+
+                  rank_candidates(&mut candidates);
+                  candidates.truncate(max_candidates);
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "2-13"
+            type: mark
+            label: "Each claim expands and verifies all source matches"
+          - lines: "37-38"
+            type: del
+            label: "The cap applies only after full verification and sorting"
+        mechanism: |
+          Every token-bearing Markdown span is materialized and verified by scanning
+          all normalized PDF pages. Only after all verified candidates are owned and
+          sorted does the code retain N, producing work proportional to claims times
+          candidates times PDF text despite the default output limit of three.
+        remediation: |
+          Score borrowed spans first, order references deterministically, and verify in
+          rank order until `max_candidates` unambiguous matches are accepted, continuing
+          only when a higher-ranked candidate fails verification.
+        temporal:
+          introduced: 2026-08-09
+          last_modified: 2026-08-09
+          commit_count: 2
+          monthly_commits: [0,0,0,0,0,0,0,0,0,0,0,2]
+        chains:
+          enables: []
+          enabled_by: []
+          related: [case-insensitive-token-check-allocates-per-comparison]
+        effort: medium
+        effort_notes: "Needs a borrowed intermediate plus ordering and fallback regression tests."
+
+      - slug: markdown-coordinate-resolution-rescans-prefixes
+        title: "Markdown parsing rescans the document prefix for every semantic unit"
+        concern: moderate
+        locations:
+          - path: src/markdown.rs
+            start_line: 236
+            end_line: 245
+        evidence: |2
+          fn line_column(source: &str, offset: usize) -> (usize, usize) {
+              let prefix = &source[..offset.min(source.len())];
+              let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
+              let column = prefix
+                  .rsplit_once('\n')
+                  .map_or(prefix, |(_, tail)| tail)
+                  .chars()
+                  .count()
+                  + 1;
+              (line, column)
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "2-9"
+            type: del
+            label: "Each coordinate reconstruction starts at byte zero"
+        mechanism: |
+          Semantic units finish in source order, but coordinate reconstruction counts
+          from the beginning for every unit. For U units across N bytes this performs
+          O(U*N) prefix work and approaches quadratic behavior on long converted
+          documents used by `locate`, `check`, `audit`, and `propose`.
+        remediation: |
+          Track monotonic source offset and line state while consuming events, or build
+          line-start offsets once and resolve each unit with `partition_point`.
+        temporal:
+          introduced: 2026-07-29
+          last_modified: 2026-08-09
+          commit_count: 3
+          monthly_commits: [0,0,0,0,0,0,0,0,0,0,1,2]
+        chains:
+          enables: []
+          enabled_by: []
+          related: []
+        effort: small
+        effort_notes: "Localized parser state; coordinate tests must cover multibyte text and same-line units."
+
+      - slug: case-insensitive-token-check-allocates-per-comparison
+        title: "Number-word coverage allocates two lowercase strings per comparison"
+        concern: advisory
+        locations:
+          - path: src/tokens.rs
+            start_line: 57
+            end_line: 59
+        evidence: |2
+          pub fn is_covered_case_insensitive(text: &str, token: &str) -> bool {
+              is_covered(&text.to_lowercase(), &token.to_lowercase())
+          }
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "2"
+            type: mark
+            label: "Both operands allocate before every boundary search"
+        mechanism: |
+          Proposal scoring calls this helper for every required number-word token and
+          candidate span. The token is already lowercase, yet every comparison allocates
+          it again plus a lowercase copy of the potentially long span.
+        remediation: |
+          Scan ASCII bytes with `eq_ignore_ascii_case`, preserving the current
+          alphanumeric boundary rules without allocating either operand.
+        temporal:
+          introduced: 2026-08-09
+          last_modified: 2026-08-09
+          commit_count: 1
+          monthly_commits: [0,0,0,0,0,0,0,0,0,0,0,1]
+        chains:
+          enables: []
+          enabled_by: [proposal-ranking-verifies-unbounded-candidate-set]
+          related: []
+        effort: small
+        effort_notes: "Add mixed-case and adjacent-alphanumeric tests for boundary semantics."
+
+      - slug: tesseract-tsv-allocates-three-vectors-per-row
+        title: "Cached Tesseract TSV parsing allocates three temporary vectors per word row"
+        concern: advisory
+        locations:
+          - path: src/pdf/tesseract.rs
+            start_line: 273
+            end_line: 301
+        evidence: |2
+              for line in lines {
+                  let fields: Vec<_> = line.split('\t').collect();
+                  let Some(text) = fields.get(text_index).map(|value| value.trim()) else {
+                      continue;
+                  };
+                  if text.is_empty() {
+                      continue;
+                  }
+                  words.push(text);
+                  let bbox = geometry_indexes
+                      .iter()
+                      .copied()
+                      .collect::<Option<Vec<_>>>()
+                      .and_then(|indexes| {
+                          let values = indexes
+                              .into_iter()
+                              .map(|index| fields.get(index)?.parse::<f64>().ok())
+                              .collect::<Option<Vec<_>>>()?;
+                          Some(PdfBbox {
+                              x: values[0],
+                              y: values[1],
+                              width: values[2],
+                              height: values[3],
+                          })
+                      });
+                  spans.push(TextSpan {
+                      text: text.to_owned(),
+                      bbox,
+                  });
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "2"
+            type: mark
+            label: "Every row allocates a field vector"
+          - lines: "10-18"
+            type: mark
+            label: "Geometry indexes and values allocate two more vectors"
+        mechanism: |
+          Tesseract TSV commonly contains thousands of rows per page. Every nonempty
+          row allocates a field vector, recreates four geometry indexes as another
+          vector, and collects four coordinates into a third vector. This also runs on
+          cache hits, where OCR no longer masks parsing cost.
+        remediation: |
+          Convert header positions once into `Option<[usize; 4]>`, stream row fields
+          while capturing only required indexes, and parse coordinates into `[f64; 4]`.
+        temporal:
+          introduced: 2026-07-29
+          last_modified: 2026-08-09
+          commit_count: 3
+          monthly_commits: [0,0,0,0,0,0,0,0,0,0,2,1]
+        chains:
+          enables: []
+          enabled_by: []
+          related: [ocr-cache-hit-spawns-version-probes]
+        effort: small
+        effort_notes: "Local parser rewrite; existing fixtures cover column order and missing geometry."
+
+  - slug: documented-agent-contract
+    title: "The Documented Agent Contract Surface"
+    thesis: "The command set is broad and reachable, but several machine-readable and corpus-wide promises diverge from runtime behavior."
+    verdict: "The CLI implementation is substantially complete; the failures cluster in contract generation and aggregation rather than missing commands. Make summary discovery template-aware, serialize one document per invocation, and generate metadata from runtime vocabularies so agents can trust the advertised interface."
+    flow:
+      - id: read-contract
+        label: "Read README or schema"
+        type: start
+      - id: choose-entry
+        label: "CLI or developer task?"
+        type: decision
+        no: developer-task
+      - id: discover-inputs
+        label: "Discover summaries"
+        type: process
+        findings:
+          - slug: custom-summary-template-inventory
+            label: "Template ignored"
+      - id: execute-command
+        label: "Execute command"
+        type: process
+        findings:
+          - slug: advisory-tokens-never-reported
+            label: "Tokens omitted"
+          - slug: vocabulary-leaks-in-validation-messages
+            label: "Terms ignored"
+      - id: serialize-output
+        label: "Serialize JSON"
+        type: process
+        findings:
+          - slug: propose-multi-id-invalid-json
+            label: "Adjacent JSON"
+          - slug: doctor-json-shape-contradicts-schema
+            label: "Wrong shape"
+      - id: compare-schema
+        label: "Match CLI Spec"
+        type: end
+        findings:
+          - slug: cli-schema-omits-runtime-errors
+            label: "Codes missing"
+      - id: developer-task
+        label: "Run just ci"
+        type: process
+        spine: false
+        findings:
+          - slug: missing-just-ci-entry-point
+            label: "Recipe missing"
+        next: compare-schema
+
+    findings:
+      - slug: cli-schema-omits-runtime-errors
+        title: "CLI schema omits runtime evidence error codes"
+        concern: significant
+        locations:
+          - path: src/evidence.rs
+            start_line: 206
+            end_line: 224
+        evidence: |2
+                  if evidence.sources.is_empty() {
+                      issues.push(issue(
+                          "empty_sources",
+                          Severity::Error,
+                          "evidence declares no sources",
+                          None,
+                          None,
+                      ));
+                  }
+                  for (name, pair) in &evidence.sources {
+                      if !validate_source_name(name) {
+                          issues.push(issue(
+                              "invalid_source_name",
+                              Severity::Error,
+                              format!("source name {name:?} is not a valid path component"),
+                              None,
+                              None,
+                          ));
+                      }
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "1-4"
+            type: mark
+            label: "Runtime code absent from schema metadata"
+          - lines: "10-14"
+            type: mark
+            label: "Another omitted runtime code"
+        mechanism: |
+          The README presents `receipts schema` as the primary agent interface and says
+          it lists every error code, but the schema registers only 18 while runtime
+          paths emit at least 20 more, including source-qualified dynamic codes. Agents
+          cannot discover or exhaustively handle actual validation outcomes.
+        remediation: |
+          Define the issue vocabulary once and generate both issue construction and
+          metadata from that registry. Use stable kinds plus structured source data,
+          then test that every emitted kind appears in the CLI Spec.
+        temporal:
+          introduced: 2026-07-29
+          last_modified: 2026-08-10
+          commit_count: 7
+          monthly_commits: [0,0,0,0,0,0,0,0,0,0,3,4]
+        chains:
+          enables: []
+          enabled_by: []
+          related: [doctor-json-shape-contradicts-schema]
+        effort: medium
+        effort_notes: "Static omissions are mechanical; normalizing dynamic codes is a small contract change."
+
+      - slug: custom-summary-template-inventory
+        title: "Corpus-wide commands cannot inventory supported custom summary templates"
+        concern: significant
+        locations:
+          - path: src/cli.rs
+            start_line: 969
+            end_line: 984
+        evidence: |2
+          fn summary_ids(corpus: &Corpus) -> Result<Vec<String>> {
+              let directory = corpus.summaries_dir();
+              let mut ids = Vec::new();
+              for entry in fs::read_dir(&directory)
+                  .with_context(|| format!("failed to read {}", directory.display()))?
+              {
+                  let path = entry?.path();
+                  if path.extension().and_then(|value| value.to_str()) == Some("yaml")
+                      && let Some(id) = path.file_stem().and_then(|value| value.to_str())
+                  {
+                      ids.push(id.to_owned());
+                  }
+              }
+              ids.sort();
+              Ok(ids)
+          }
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "2-12"
+            type: del
+            label: "Flat-directory and filename-stem assumptions"
+        mechanism: |
+          Configuration accepts any relative summary template containing `{id}` and
+          tests support `records/{id}/summary.yaml`, but bare `check`, `audit`, and
+          `propose` scan only immediate `.yaml` children and treat each filename stem
+          as the ID. Supported nested or decorated templates disappear from inventory.
+        remediation: |
+          Derive discovery from the full template: traverse below its static prefix,
+          match static prefix/suffix, extract `{id}`, and confirm the resolved path.
+          Add bare-command CLI coverage for a nested summary template.
+        temporal:
+          introduced: 2026-07-30
+          last_modified: 2026-08-10
+          commit_count: 16
+          monthly_commits: [0,0,0,0,0,0,0,0,0,0,3,13]
+        chains:
+          enables: []
+          enabled_by: []
+          related: []
+        effort: medium
+        effort_notes: "Requires template-aware matching and recursive traversal without changing configuration shape."
+
+      - slug: propose-multi-id-invalid-json
+        title: "Multi-ID propose output is not a valid JSON document"
+        concern: significant
+        locations:
+          - path: src/cli.rs
+            start_line: 834
+            end_line: 860
+        evidence: |2
+          fn propose_cmd(corpus: &Corpus, args: &ProposeArgs, json: bool, quiet: bool) -> Result<()> {
+              let ids = if args.ids.is_empty() {
+                  summary_ids(corpus)?
+              } else {
+                  args.ids.clone()
+              };
+              let tools = PdfTools::new(corpus.cache_root().to_path_buf(), corpus.ocr_config());
+
+              for id in &ids {
+                  let summary = read_summary(corpus, id)?;
+                  if summary.id != *id {
+                      bail!(
+                          "summary ID {:?} does not match filename ID {:?}",
+                          summary.id,
+                          id
+                      );
+                  }
+                  let report =
+                      crate::propose::propose_document(corpus, &summary, &tools, args.candidates, args.all)?;
+                  if json {
+                      print_json(&report)?;
+                  } else if !quiet {
+                      print_propose_human(&report, &summary, corpus.terms());
+                  }
+              }
+              Ok(())
+          }
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "2-6"
+            type: mark
+            label: "Command accepts multiple or all summary IDs"
+          - lines: "9-21"
+            type: del
+            label: "Each report becomes a separate top-level JSON document"
+        mechanism: |
+          The command accepts `[ID...]` and piped output defaults to JSON, but the loop
+          prints one pretty top-level object per summary. Two IDs produce adjacent JSON
+          documents: neither valid single JSON nor documented JSON Lines.
+        remediation: |
+          Collect reports and serialize one stable aggregate object with a `summaries`
+          array. Update CLI Spec fields and test multi-ID stdout with `serde_json`.
+        temporal:
+          introduced: 2026-07-30
+          last_modified: 2026-08-10
+          commit_count: 16
+          monthly_commits: [0,0,0,0,0,0,0,0,0,0,3,13]
+        chains:
+          enables: []
+          enabled_by: []
+          related: []
+        effort: small
+        effort_notes: "Aggregate existing reports, update metadata, and add one integration test."
+
+      - slug: advisory-tokens-never-reported
+        title: "Advertised advisory tokens never reach check or propose output"
+        concern: moderate
+        locations:
+          - path: .handoffs/2026-08-09-phase-2-complete.md
+            start_line: 157
+            end_line: 160
+        evidence: |2
+          - **Advisory tokens are never enforced.** They appear in `--json` output
+            and will appear in `propose` output (Phase 3), but they never produce
+            issues and never affect exit status. `coverage.tokens: off` disables
+            required-token enforcement but leaves advisory extraction intact.
+        evidence_lang: markdown
+        evidence_markers:
+          - lines: "1-4"
+            type: del
+            label: "Documented reporting contract is not wired"
+        mechanism: |
+          Token extraction computes advisory values, but validation reports contain
+          only issues and proposal claims expose only required/uncovered tokens and
+          candidates. The promised field is absent from both structured outputs,
+          including when required-token enforcement is off.
+        remediation: |
+          Add per-claim advisory-token data to validation and proposal output models,
+          populate it independently of enforcement, declare it in CLI Spec metadata,
+          and cover `coverage.tokens: off`.
+        temporal:
+          introduced: 2026-08-09
+          last_modified: 2026-08-09
+          commit_count: 1
+          monthly_commits: [0,0,0,0,0,0,0,0,0,0,0,1]
+        chains:
+          enables: []
+          enabled_by: []
+          related: []
+        effort: small
+        effort_notes: "Extraction exists; this is output-model plumbing and contract coverage."
+
+      - slug: doctor-json-shape-contradicts-schema
+        title: "Doctor JSON is an array of tuples, not the declared object fields"
+        concern: moderate
+        locations:
+          - path: src/cli.rs
+            start_line: 445
+            end_line: 472
+        evidence: |2
+              let mut checks = vec![
+                  ("corpus", true, corpus.root().display().to_string()),
+                  (
+                      "config",
+                      true,
+                      corpus
+                          .config_file()
+                          .map_or_else(|| "defaults".to_owned(), |path| path.display().to_string()),
+                  ),
+                  match tools.mutool.version() {
+                      Ok(version) => ("mutool", true, version),
+                      Err(error) => ("mutool", false, error.to_string()),
+                  },
+                  match tools.tesseract.version() {
+                      Ok(version) => ("tesseract", true, version),
+                      Err(error) => ("tesseract", false, error.to_string()),
+                  },
+                  (
+                      "native profile",
+                      true,
+                      crate::pdf::mutool::PROFILE_NAME.to_owned(),
+                  ),
+                  (
+                      "OCR profile",
+                      true,
+                      crate::pdf::tesseract::profile_name(&ocr.lang, ocr_dpi),
+                  ),
+              ];
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "1-28"
+            type: del
+            label: "Tuple-based runtime representation conflicts with named fields"
+        mechanism: |
+          The JSON path serializes `checks` as arrays of `[label, valid, detail]`.
+          CLI Spec declares named top-level string fields such as `corpus`, `config`,
+          `native_profile`, and `ocr_profile`; runtime labels also use different casing.
+        remediation: |
+          Replace tuples with a serializable `DoctorReport` whose named fields match
+          the authoritative CLI Spec at `src/cli.rs:210-232`, and serialize that report
+          at the existing JSON boundary. Add a schema-conformance integration test.
+        temporal:
+          introduced: 2026-07-30
+          last_modified: 2026-08-10
+          commit_count: 16
+          monthly_commits: [0,0,0,0,0,0,0,0,0,0,3,13]
+        chains:
+          enables: []
+          enabled_by: []
+          related: [cli-schema-omits-runtime-errors]
+        effort: small
+        effort_notes: "Localized output-model refactor plus one integration test."
+
+      - slug: vocabulary-leaks-in-validation-messages
+        title: "Review validation ignores configured claim vocabulary"
+        concern: moderate
+        locations:
+          - path: src/review.rs
+            start_line: 104
+            end_line: 137
+        evidence: |2
+              for entry in &review.claims {
+                  if entry.claim >= claims.len() {
+                      issues.push(issue(
+                          "unknown_review_claim",
+                          Severity::Error,
+                          format!(
+                              "review entry references claim {} but only {} claims exist",
+                              entry.claim,
+                              claims.len()
+                          ),
+                          Some(entry.claim),
+                      ));
+                      continue;
+                  }
+
+                  if !reviewed.insert(entry.claim) {
+                      issues.push(issue(
+                          "duplicate_review_claim",
+                          Severity::Error,
+                          format!("duplicate review entry for claim {}", entry.claim),
+                          Some(entry.claim),
+                      ));
+                      continue;
+                  }
+
+                  let expected_claim_hash = sha256_bytes(claims[entry.claim].as_bytes());
+                  if entry.claim_sha256 != expected_claim_hash {
+                      issues.push(issue(
+                          "stale_review_claim",
+                          Severity::Error,
+                          format!(
+                              "review claim_sha256 is stale for claim {}: expected {expected_claim_hash}, found {}",
+                              entry.claim, entry.claim_sha256
+                          ),
+        evidence_lang: rust
+        evidence_markers:
+          - lines: "7"
+            type: mark
+            label: "Canonical vocabulary hard-coded"
+          - lines: "20"
+            type: mark
+            label: "Duplicate message leaks claim"
+          - lines: "32"
+            type: mark
+            label: "Staleness message leaks claim"
+        mechanism: |
+          The README says human-readable messages follow configured vocabulary, but
+          review validation does not receive `Terms` and hard-codes `claim` throughout.
+          Token, section, missing-review, and locate messages contain similar literals.
+        remediation: |
+          Pass `&Terms` through review validation and use it in human-readable messages
+          while keeping error codes fixed. Cover review, token, section, and locate
+          failures with custom vocabulary.
+        temporal:
+          introduced: 2026-08-10
+          last_modified: 2026-08-10
+          commit_count: 2
+          monthly_commits: [0,0,0,0,0,0,0,0,0,0,0,2]
+        chains:
+          enables: []
+          enabled_by: []
+          related: []
+        effort: small
+        effort_notes: "Signature plumbing and localized message replacement; codes remain stable."
+
+      - slug: missing-just-ci-entry-point
+        title: "README advertises a nonexistent just ci command"
+        concern: moderate
+        locations:
+          - path: README.md
+            start_line: 337
+            end_line: 344
+        evidence: |2
+          ## Development
+
+          ```bash
+          just check   # fmt, clippy, build
+          just test    # full suite
+          just ci      # both
+          just doctor  # probe tools
+          ```
+        evidence_lang: markdown
+        evidence_markers:
+          - lines: "4-6"
+            type: del
+            label: "Documented development entry point does not exist"
+        mechanism: |
+          The `justfile` defines `check`, `test`, and `doctor` but no `ci`, so the
+          documented command fails immediately. The adjacent `check` description is
+          also stale because that recipe already runs the full validation gate.
+        remediation: |
+          Add a `ci` alias for the canonical gate, then align recipe comments and the
+          README with `just --list`.
+        temporal:
+          introduced: 2026-07-30
+          last_modified: 2026-08-10
+          commit_count: 4
+          monthly_commits: [0,0,0,0,0,0,0,0,0,0,3,1]
+        chains:
+          enables: []
+          enabled_by: []
+          related: []
+        effort: trivial
+        effort_notes: "One alias recipe and localized documentation correction."
+
+summary:
+  counts:
+    critical: 0
+    significant: 8
+    moderate: 8
+    advisory: 4
+    note: 0
