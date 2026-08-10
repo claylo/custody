@@ -2,12 +2,12 @@
 audit: 2026-08-10-16-full-repo
 last_updated: 2026-08-10
 status:
-  fixed: 11
+  fixed: 16
   mitigated: 0
-  accepted: 0
+  accepted: 4
   disputed: 0
   deferred: 0
-  open: 9
+  open: 0
 ---
 
 # Actions Taken: Full repository audit — Rust source, tests, dependencies, configuration, and documented behavior
@@ -32,3 +32,31 @@ Eleven findings addressed in a single commit across five audit surfaces. All 164
 **Dependencies (2 findings).** `default-features = false` added to both `librebar` and `pulldown-cmark` in Cargo.toml, dropping the unused librebar cache subsystem and pulldown-cmark's `getopts`/`html` features.
 
 **Build (1 finding).** Added `ci: check` recipe to justfile; aligned README Development section comments with actual recipe behavior.
+
+---
+
+## 2026-08-10 — Hoist OCR profile, bound proposal verification, complete schema, accept 4 findings
+
+**Disposition:** fixed
+**Addresses:** [ocr-cache-hit-spawns-version-probes](README.md#ocr-cache-hit-spawns-version-probes), [proposal-ranking-verifies-unbounded-candidate-set](README.md#proposal-ranking-verifies-unbounded-candidate-set), [cli-schema-omits-runtime-errors](README.md#cli-schema-omits-runtime-errors), [advisory-tokens-never-reported](README.md#advisory-tokens-never-reported), [custom-summary-template-inventory](README.md#custom-summary-template-inventory)
+**Commit:** bfcb40b
+**Author:** clay
+
+**Performance (2 findings).** OCR profile (tool versions, render/recognition commands) is now resolved once per `PdfTools` via `OnceCell` and reused for all page-level cache lookups. On a corpus with N cached OCR pages, this eliminates 2N subprocess spawns. The `resolve_profile` function is extracted so the low-level `ocr_page` function retains its current signature for test doubles. Proposal ranking now sorts `RawCandidate`s before PDF verification and stops after `max_candidates` pass, so a claim with 200 raw candidates verifies ~3-10 against the PDF instead of all 200. The ranking uses the same total comparison keys (`matched`, `exact.len()`, `source`, `line`, `column`), so output is identical.
+
+**Schema/contract (3 findings).** CLI Spec now declares all 37 static error codes and 5 dynamic code patterns emitted at runtime, up from 18. `ClaimProposal` gains an `advisory_tokens` field populated from `ExtractedTokens::advisory`, surfacing advisory token data in structured output independently of enforcement mode. Summary discovery now derives from the full template pattern: `walk_summaries` recursively traverses below the template's static prefix, matches against prefix/suffix, and extracts the `{id}` component. This supports nested templates like `records/{id}/summary.yaml` that the previous flat `read_dir` missed.
+
+---
+
+## 2026-08-10 — Accept 4 findings with no code change
+
+**Disposition:** accepted
+**Addresses:** [cache-manifest-invariants-are-bypassable](README.md#cache-manifest-invariants-are-bypassable), [unvalidated-discovered-state](README.md#unvalidated-discovered-state), [propose-silently-suppresses-source-failures](README.md#propose-silently-suppresses-source-failures), [public-apis-erase-error-types](README.md#public-apis-erase-error-types)
+**Commit:** bfcb40b
+**Author:** clay
+
+The first three findings in the Configuration and Cache Integrity surface (`cache-manifest-invariants-are-bypassable`, `unvalidated-discovered-state`, and the upstream root cause of the now-fixed `unchecked-empty-markdown-candidates-panic`) describe validation-bypass paths through the public API. There are no library consumers — the `pub` surface exists for internal/test convenience only — and the CLI path validates rigorously. The symptom (indexing panic) is already fixed; the structural encapsulation work is not warranted without library consumers.
+
+`propose-silently-suppresses-source-failures` describes intentional resilience: `propose` is advisory and non-authoritative by design. Missing or unreadable sources produce fewer candidates rather than a hard failure, matching the tool's role as a suggestion engine rather than an evidence authority.
+
+`public-apis-erase-error-types` is an advisory finding about `anyhow::Result` at module boundaries. Without library consumers, typed errors at internal boundaries add maintenance cost without a consumer to benefit.
