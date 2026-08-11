@@ -181,11 +181,40 @@ fn audit_discovers_summaries_at_the_configured_template_depth() {
         "id: missing-evidence\nclaims:\n  - A claim without evidence.\n",
     )
     .unwrap();
+    fs::write(
+        corpus.path().join("records/missing-evidence/notes.md"),
+        "not a summary",
+    )
+    .unwrap();
 
     let output = receipts(corpus.path(), &["audit"]);
 
     assert!(output.status.success(), "{}", stderr(&output));
-    assert!(stdout(&output).contains("missing: 1"));
+    assert_eq!(stdout(&output), "valid: 0\nmissing: 1\ninvalid: 0\n");
+}
+
+#[test]
+fn audit_rejects_summary_below_the_configured_template_depth() {
+    let corpus = tempfile::tempdir().unwrap();
+    fs::create_dir_all(corpus.path().join("records/group/doc-001")).unwrap();
+    fs::write(
+        corpus.path().join("receipts.yaml"),
+        concat!(
+            "corpus:\n  summaries: \"records/{id}/summary.yaml\"\n",
+            "cache:\n  root: \".cache/pdf-text\"\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        corpus.path().join("records/group/doc-001/summary.yaml"),
+        "id: doc-001\nclaims:\n  - A claim without evidence.\n",
+    )
+    .unwrap();
+
+    let output = receipts(corpus.path(), &["audit"]);
+
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("summary discovery exceeded template depth"));
 }
 
 #[test]
