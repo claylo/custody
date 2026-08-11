@@ -102,6 +102,14 @@ fn proposes_candidates_for_claims_without_evidence() {
     let pdf = best.pdf.as_ref().unwrap();
     assert_eq!(pdf.page, 1);
     assert_eq!(pdf.backend, PdfBackend::MutoolNative);
+
+    let accepted = Locator {
+        source: best.source.clone(),
+        exact: best.exact.clone(),
+        markdown: best.markdown.clone(),
+        pdf: best.pdf.clone().unwrap(),
+    };
+    assert_eq!(accepted.markdown.line, 1);
 }
 
 #[test]

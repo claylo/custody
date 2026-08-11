@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use crate::coordinate::{ClaimIndex, Column, Line, Page};
 use crate::corpus::Corpus;
-use crate::evidence::{PdfBackend, SummaryDocument};
+use crate::evidence::{MarkdownLocator, PdfBackend, PdfLocator, SummaryDocument};
 use crate::markdown::{MarkdownUnit, UnitKind, exact_count, parse_units};
 use crate::normalize::normalize;
 use crate::pdf::PdfTextProvider;
@@ -41,8 +41,8 @@ pub struct Candidate {
     pub source: String,
     pub exact: String,
     pub coverage: CoverageScore,
-    pub markdown: MarkdownMatch,
-    pub pdf: Option<PdfMatch>,
+    pub markdown: MarkdownLocator,
+    pub pdf: Option<PdfLocator>,
 }
 
 /// How many of a claim's required tokens one candidate reaches.
@@ -50,22 +50,6 @@ pub struct Candidate {
 pub struct CoverageScore {
     pub matched: usize,
     pub required: usize,
-}
-
-/// Where a candidate sits in the converted Markdown.
-#[derive(Debug, Clone, Serialize)]
-pub struct MarkdownMatch {
-    pub line: Line,
-    pub column: Column,
-    pub unit: UnitKind,
-    pub section: Vec<String>,
-}
-
-/// The single PDF page a candidate was found on.
-#[derive(Debug, Clone, Serialize)]
-pub struct PdfMatch {
-    pub page: Page,
-    pub backend: PdfBackend,
 }
 
 /// Split text on terminal punctuation followed by whitespace.
@@ -185,13 +169,13 @@ pub fn propose_document(
                     matched: raw.matched,
                     required: claim_tokens.required.len(),
                 },
-                markdown: MarkdownMatch {
+                markdown: MarkdownLocator {
                     line: raw.line,
                     column: raw.column,
                     unit: raw.unit,
                     section: raw.section,
                 },
-                pdf: Some(PdfMatch {
+                pdf: Some(PdfLocator {
                     page,
                     backend: PdfBackend::MutoolNative,
                 }),
