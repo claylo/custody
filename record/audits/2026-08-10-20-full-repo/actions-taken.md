@@ -2,12 +2,12 @@
 audit: 2026-08-10-20-full-repo
 last_updated: 2026-08-10
 status:
-  fixed: 9
+  fixed: 12
   mitigated: 0
   accepted: 0
   disputed: 0
   deferred: 0
-  open: 39
+  open: 36
 ---
 
 # Actions Taken: Full repository — Rust source (src/, tests/), dependencies, configuration (.config/, justfile, Cargo.toml, deny.toml), and documented behavior (README.md, receipts.yaml)
@@ -130,3 +130,42 @@ Defined and documented supported runtime ranges of MuPDF `>=1.28.0, <1.29.0` and
 Replaced the `<br` probe's direct UTF-8 string slice with a bounds-checked byte-prefix comparison. The comparison remains ASCII-case-insensitive while no longer requiring byte three to be a character boundary.
 
 A regression test feeds `parse_units` the previously crashing `para <?é?> tail` input and confirms that the processing instruction is ignored without a panic.
+
+---
+
+## 2026-08-10 — Preflight the PDF toolchain before evidence commands
+
+**Disposition:** fixed
+**Addresses:** [tool-failure-indistinguishable-from-invalid-evidence](README.md#tool-failure-indistinguishable-from-invalid-evidence)
+**Commit:** 6e68092b13fd06344c7890259f76fe9735845f45
+**Author:** Codex
+
+Added a shared PDF-toolchain preflight that validates both configured executables and their supported versions before `locate`, `check`, `audit`, or `propose` reads and judges summary evidence. Missing or unsupported infrastructure now aborts outside evidence counters instead of being reported as invalid corpus content.
+
+CLI regression coverage runs aggregate commands with an empty `PATH` and proves they fail with a toolchain-preflight error before emitting invalid-evidence totals. The README now distinguishes infrastructure failures from evidence findings.
+
+---
+
+## 2026-08-10 — Handle closed stdout without a crash report
+
+**Disposition:** fixed
+**Addresses:** [broken-pipe-panic-writes-crash-dump](README.md#broken-pipe-panic-writes-crash-dump)
+**Commit:** 30676612de967fbfbf2d232074c635b37984a7d7
+**Author:** Codex
+
+Routed report output through fallible writes to a locked stdout and preserved I/O errors through the `anyhow` chain. The binary now recognizes `BrokenPipe` as a clean termination, so short-lived pipeline consumers cannot trigger a panic or Librebar crash report.
+
+Unit coverage proves broken-pipe errors remain detectable after context is attached, and a Unix CLI regression closes the stdout reader before running `doctor` and verifies a successful, panic-free exit. All report-producing stdout call sites use the shared fallible path.
+
+---
+
+## 2026-08-10 — Preserve partial proposal batches
+
+**Disposition:** fixed
+**Addresses:** [propose-aborts-the-batch-on-one-unreadable-summary](README.md#propose-aborts-the-batch-on-one-unreadable-summary)
+**Commit:** 1c0b187e44919deed56a868f37b5b244f013aafd
+**Author:** Codex
+
+`propose` now records malformed summaries and filename/ID mismatches as per-summary failures and continues processing the remaining corpus. Aggregate JSON retains successful proposals beside structured `summary_parse_failed` and `id_mismatch` entries; human mode keeps proposals on stdout and names failures on stderr before returning a non-zero status.
+
+A mixed-corpus CLI regression covers a valid proposal, malformed YAML, and an ID mismatch in both output modes. The README documents the partial-result and final-exit behavior.
