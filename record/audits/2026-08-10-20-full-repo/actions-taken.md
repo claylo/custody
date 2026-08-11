@@ -2,12 +2,12 @@
 audit: 2026-08-10-20-full-repo
 last_updated: 2026-08-10
 status:
-  fixed: 2
+  fixed: 3
   mitigated: 0
   accepted: 0
   disputed: 0
   deferred: 0
-  open: 46
+  open: 45
 ---
 
 # Actions Taken: Full repository — Rust source (src/, tests/), dependencies, configuration (.config/, justfile, Cargo.toml, deny.toml), and documented behavior (README.md, receipts.yaml)
@@ -39,3 +39,16 @@ The CLI now constructs one policy-bound `PdfTools` instance per invocation, and 
 Configured cache roots must now be relative paths without parent components. Resolution canonicalizes the nearest existing ancestor, rejects existing symlinks that leave the corpus, and reconstructs only validated missing components before any cache directory is created. The default platform cache remains outside this project-configured path contract.
 
 Regression tests cover absolute paths, `..` traversal, and symlink escape attempts. The README and `CacheConfig` documentation now state the same containment boundary enforced by `Corpus::from_discovered`.
+
+---
+
+## 2026-08-10 — Contain and bound corpus text reads
+
+**Disposition:** fixed
+**Addresses:** [summary-and-markdown-reads-skip-containment-guard](README.md#summary-and-markdown-reads-skip-containment-guard)
+**Commit:** 4d76a9d18f34a8eea20dcfa2b527d0fefcfefe4f
+**Author:** Codex
+
+Moved path canonicalization, corpus containment, regular-file validation, and bounded UTF-8 reading into a shared corpus boundary. Summary and Markdown reads in `locate`, `check`, `audit`, validation, and proposal generation now use that boundary instead of opening joined paths directly.
+
+Each text input is capped at 64 MiB using both file metadata and a limited reader, covering files that grow after the initial check. CLI regressions prove that an outside-corpus summary symlink is rejected and that an oversized sparse summary fails before its content is loaded.
