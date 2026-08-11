@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     path::{Path, PathBuf},
 };
 
@@ -174,6 +174,49 @@ pub fn validate_document(
     }
 
     let mut pdf_pages: HashMap<(&str, PdfBackend, Page), Result<String, String>> = HashMap::new();
+    let mut native_citations: BTreeMap<&str, BTreeSet<Page>> = BTreeMap::new();
+    for locator in evidence
+        .claims
+        .iter()
+        .flat_map(|entry| &entry.locators)
+        .filter(|locator| locator.pdf.backend == PdfBackend::MutoolNative)
+    {
+        native_citations
+            .entry(locator.source.as_str())
+            .or_default()
+            .insert(locator.pdf.page);
+    }
+    for (source_name, cited_pages) in native_citations {
+        if cited_pages.len() < 2 {
+            continue;
+        }
+        let Some(pdf_path) = source_pdf_path.get(source_name) else {
+            continue;
+        };
+        match provider.native_pages(pdf_path, None) {
+            Ok(pages) => {
+                let mut by_page: HashMap<Page, String> = pages
+                    .into_iter()
+                    .map(|page| (page.page, normalize(&page.text)))
+                    .collect();
+                for page in cited_pages {
+                    let extracted = by_page.remove(&page).ok_or_else(|| {
+                        format!("native backend did not return physical page {page}")
+                    });
+                    pdf_pages.insert((source_name, PdfBackend::MutoolNative, page), extracted);
+                }
+            }
+            Err(error) => {
+                let error = error.to_string();
+                for page in cited_pages {
+                    pdf_pages.insert(
+                        (source_name, PdfBackend::MutoolNative, page),
+                        Err(error.clone()),
+                    );
+                }
+            }
+        }
+    }
     let token_severity = match corpus.coverage_config().tokens {
         TokenSeverity::Error => Some(Severity::Error),
         TokenSeverity::Warn => Some(Severity::Warning),

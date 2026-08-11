@@ -1,4 +1,5 @@
 use std::{
+    cell::RefCell,
     collections::{BTreeMap, HashMap},
     fs,
     os::unix::fs::symlink,
@@ -118,6 +119,56 @@ fn duplicate_pdf_matches_are_invalid() {
             .iter()
             .any(|issue| issue.code == "pdf_ambiguous")
     );
+}
+
+#[test]
+fn native_validation_batches_multiple_cited_pages() {
+    struct CountingPdf {
+        calls: RefCell<Vec<Option<Page>>>,
+    }
+
+    impl PdfTextProvider for CountingPdf {
+        fn native_pages(&self, _pdf: &Path, page: Option<Page>) -> Result<Vec<ExtractedPage>> {
+            self.calls.borrow_mut().push(page);
+            let pages = page.map_or_else(
+                || vec![Page::new(1).unwrap(), Page::new(2).unwrap()],
+                |page| vec![page],
+            );
+            Ok(pages
+                .into_iter()
+                .map(|page| ExtractedPage {
+                    page,
+                    text: "Supported once.".to_owned(),
+                    spans: Vec::new(),
+                    mean_confidence: None,
+                })
+                .collect())
+        }
+
+        fn ocr_page(&self, _pdf: &Path, _pdf_sha256: &str, _page: Page) -> Result<ExtractedPage> {
+            bail!("OCR extraction was not requested")
+        }
+    }
+
+    let fixture = Fixture::new("Supported once.");
+    let mut summary = fixture.summary("Supported once", PdfBackend::MutoolNative);
+    let second = {
+        let first = &summary.evidence.as_ref().unwrap().claims[0].locators[0];
+        let mut second = first.clone();
+        second.pdf.page = Page::new(2).unwrap();
+        second
+    };
+    summary.evidence.as_mut().unwrap().claims[0]
+        .locators
+        .push(second);
+    let provider = CountingPdf {
+        calls: RefCell::new(Vec::new()),
+    };
+
+    let report = validate_document(&fixture.corpus, &summary, &provider, false);
+
+    assert!(report.issues.is_empty(), "{:?}", report.issues);
+    assert_eq!(*provider.calls.borrow(), [None]);
 }
 
 #[test]
