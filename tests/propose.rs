@@ -99,7 +99,7 @@ fn proposes_candidates_for_claims_without_evidence() {
     assert_eq!(best.coverage.required, 1);
     assert_eq!(best.markdown.line, 1);
     assert_eq!(best.markdown.unit, UnitKind::Paragraph);
-    let pdf = best.pdf.as_ref().unwrap();
+    let pdf = &best.pdf;
     assert_eq!(pdf.page, 1);
     assert_eq!(pdf.backend, PdfBackend::MutoolNative);
 
@@ -107,7 +107,7 @@ fn proposes_candidates_for_claims_without_evidence() {
         source: best.source.clone(),
         exact: best.exact.clone(),
         markdown: best.markdown.clone(),
-        pdf: best.pdf.clone().unwrap(),
+        pdf: best.pdf.clone(),
     };
     assert_eq!(accepted.markdown.line, 1);
 }

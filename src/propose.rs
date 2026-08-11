@@ -42,7 +42,7 @@ pub struct Candidate {
     pub exact: String,
     pub coverage: CoverageScore,
     pub markdown: MarkdownLocator,
-    pub pdf: Option<PdfLocator>,
+    pub pdf: PdfLocator,
 }
 
 /// How many of a claim's required tokens one candidate reaches.
@@ -175,10 +175,10 @@ pub fn propose_document(
                     unit: raw.unit,
                     section: raw.section,
                 },
-                pdf: Some(PdfLocator {
+                pdf: PdfLocator {
                     page,
                     backend: PdfBackend::MutoolNative,
-                }),
+                },
             });
         }
 

@@ -931,9 +931,10 @@ fn print_propose_human(
             } else {
                 format!(" [{}]", candidate.markdown.section.join(" > "))
             };
-            let pdf = candidate.pdf.as_ref().map_or_else(
-                || "  (no native PDF match)".to_owned(),
-                |pdf| format!("  p.{} {}", pdf.page, pdf.backend.as_str()),
+            let pdf = format!(
+                "  p.{} {}",
+                candidate.pdf.page,
+                candidate.pdf.backend.as_str()
             );
             print_line(format_args!(
                 "#   [{}] {}/{}  {}  md:{}:{} {}{section}{pdf}",
@@ -948,9 +949,7 @@ fn print_propose_human(
             print_line(format_args!("#       {:?}", candidate.exact))?;
         }
 
-        if let Some(first) = proposal.candidates.first()
-            && let Some(pdf) = first.pdf.as_ref()
-        {
+        if let Some(first) = proposal.candidates.first() {
             // `--claim` and `--source` are fixed flag names; only prose follows
             // the configured vocabulary, so the pasted command always runs.
             let source = if first.source == DEFAULT_SOURCE {
@@ -966,7 +965,7 @@ fn print_propose_human(
             ))?;
             print_line(format_args!(
                 "#       --exact {:?} --page {}{source}",
-                first.exact, pdf.page
+                first.exact, first.pdf.page
             ))?;
         }
         print_line(format_args!(""))?;
