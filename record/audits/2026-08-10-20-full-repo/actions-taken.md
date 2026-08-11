@@ -2,12 +2,12 @@
 audit: 2026-08-10-20-full-repo
 last_updated: 2026-08-10
 status:
-  fixed: 6
+  fixed: 9
   mitigated: 0
   accepted: 0
   disputed: 0
   deferred: 0
-  open: 42
+  open: 39
 ---
 
 # Actions Taken: Full repository — Rust source (src/, tests/), dependencies, configuration (.config/, justfile, Cargo.toml, deny.toml), and documented behavior (README.md, receipts.yaml)
@@ -91,3 +91,42 @@ Boundary tests pin acceptance at 1200, rejection at 1201, and rejection when a c
 Added optional absolute `pdf.tools.mutool` and `pdf.tools.tesseract` paths while retaining bare-name lookup as the default. Both forms are resolved and canonicalized once when `PdfTools` is constructed, and every subprocess invocation uses that stored absolute path. `doctor` now reports each resolved path alongside its version.
 
 The canonical paths are part of `OcrProfile` and therefore the cache key, preventing same-version binaries at different locations from sharing entries. The OCR profile directory is bumped to `v2`; regression coverage proves configured binaries work with an empty ambient `PATH`, relative configured paths are rejected, and cache identity changes with executable identity.
+
+---
+
+## 2026-08-10 — Reject drifted MuPDF structured text
+
+**Disposition:** fixed
+**Addresses:** [stext-schema-drift-yields-silent-empty-extraction](README.md#stext-schema-drift-yields-silent-empty-extraction)
+**Commit:** b1d00425e8932f4201fb900a56de01df68eb11ff
+**Author:** Codex
+
+MuPDF structured-text parsing now requires the documented page and block containers and requires `lines` on blocks declared as `type: text`. Non-text blocks remain valid and are ignored, preserving image-only pages for OCR fallback instead of conflating them with schema drift.
+
+Missing bounding boxes remain representable, but `locate` now emits `no geometry available for this backend` when a match has no coordinates. Regression tests cover missing structural fields, non-text blocks, optional geometry, and the explicit diagnostic.
+
+---
+
+## 2026-08-10 — Enforce external tool version ranges
+
+**Disposition:** fixed
+**Addresses:** [external-tool-versions-probed-never-validated](README.md#external-tool-versions-probed-never-validated)
+**Commit:** 217673f6d1c7405733523481b855ef68dc8d255d
+**Author:** Codex
+
+Defined and documented supported runtime ranges of MuPDF `>=1.28.0, <1.29.0` and Tesseract `>=5.5.0, <5.6.0`. Numeric probe output is parsed and checked against adapter-local constants instead of treating every zero-exit probe as compatible.
+
+`doctor` now distinguishes `missing`, `unsupported`, and `ok`, exposes the tool states in JSON, and fails preflight for an unsupported version. Boundary tests cover both supported minor lines, both exclusion boundaries, malformed output, and an end-to-end unsupported MuPDF probe.
+
+---
+
+## 2026-08-10 — Prevent multibyte inline HTML panics
+
+**Disposition:** fixed
+**Addresses:** [inline-html-byte-slice-panics-on-multibyte-markdown](README.md#inline-html-byte-slice-panics-on-multibyte-markdown)
+**Commit:** dafa20b550015c199f292d9fa96f690d136a7c96
+**Author:** Codex
+
+Replaced the `<br` probe's direct UTF-8 string slice with a bounds-checked byte-prefix comparison. The comparison remains ASCII-case-insensitive while no longer requiring byte three to be a character boundary.
+
+A regression test feeds `parse_units` the previously crashing `para <?é?> tail` input and confirms that the processing instruction is ignored without a panic.
