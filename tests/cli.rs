@@ -40,6 +40,15 @@ fn receipts_json(corpus: &Path, args: &[&str]) -> Output {
         .expect("receipts executes")
 }
 
+fn receipts_auto(corpus: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_receipts"))
+        .arg("-C")
+        .arg(corpus)
+        .args(args)
+        .output()
+        .expect("receipts executes")
+}
+
 #[test]
 fn schema_declares_runtime_issue_codes() {
     let output = Command::new(env!("CARGO_BIN_EXE_receipts"))
@@ -412,6 +421,50 @@ fn locate_refuses_ocr_fallback_when_disabled() {
         stderr.contains("OCR is disabled"),
         "should refuse OCR fallback: {stderr}"
     );
+}
+
+#[test]
+fn authoring_commands_keep_human_output_when_stdout_is_captured() {
+    let temp = tempfile::tempdir().unwrap();
+    for path in ["summaries", "md/smith-2019", "pdfs"] {
+        fs::create_dir_all(temp.path().join(path)).unwrap();
+    }
+    fs::write(
+        temp.path().join("receipts.yaml"),
+        "cache:\n  root: \".cache/pdf-text\"\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("summaries/smith-2019.yaml"),
+        "id: smith-2019\nclaims:\n  - \"The rate was 67.5% in controls.\"\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("md/smith-2019/smith-2019.md"),
+        "The rate was 67.5% in the control group.\n",
+    )
+    .unwrap();
+    fs::write(temp.path().join("pdfs/smith-2019.pdf"), TEXT_PDF).unwrap();
+
+    let locate = receipts_auto(
+        temp.path(),
+        &[
+            "locate",
+            "smith-2019",
+            "--claim",
+            "0",
+            "--exact",
+            "The rate was 67.5% in the control group.",
+            "--page",
+            "1",
+        ],
+    );
+    assert!(locate.status.success(), "{}", stderr(&locate));
+    assert!(stdout(&locate).starts_with("# PDF match diagnostic:"));
+
+    let propose = receipts_auto(temp.path(), &["propose", "smith-2019"]);
+    assert!(propose.status.success(), "{}", stderr(&propose));
+    assert!(stdout(&propose).starts_with("# claim 0"));
 }
 
 #[test]

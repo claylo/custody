@@ -209,7 +209,11 @@ pub fn run() -> Result<()> {
     let cwd = std::env::current_dir().context("failed to read current directory")?;
     let explicit = config_path.as_ref().map(|p| Path::new(p.as_str()));
     let corpus = Corpus::discover_from(&cwd, explicit)?;
-    let format = cli.common.output_format();
+    let format = if matches!(&cli.command, Command::Locate(_) | Command::Propose(_)) {
+        cli.common.output_format_for(true)
+    } else {
+        cli.common.output_format()
+    };
     let json = format == ResolvedOutputFormat::Json;
     let quiet = cli.common.quiet;
     let read_policy = cache_read_policy(corpus.cache_is_corpus_local(), cli.trust_cache);

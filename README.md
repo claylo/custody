@@ -147,6 +147,10 @@ Report writes are fallible. If a downstream reader closes stdout early (for
 example, `receipts audit --format json | head -1`), receipts exits cleanly
 without creating a crash report.
 
+`locate` and `propose` default to their human, YAML-ready text even when stdout
+is redirected; use `--format json` explicitly for structured output. Status
+commands retain the normal terminal-aware `auto` behavior.
+
 ### doctor
 
 Probes corpus paths, external tools, extraction profiles, and the cache root.
