@@ -2,12 +2,12 @@
 audit: 2026-08-10-20-full-repo
 last_updated: 2026-08-10
 status:
-  fixed: 4
+  fixed: 5
   mitigated: 0
   accepted: 0
   disputed: 0
   deferred: 0
-  open: 44
+  open: 43
 ---
 
 # Actions Taken: Full repository — Rust source (src/, tests/), dependencies, configuration (.config/, justfile, Cargo.toml, deny.toml), and documented behavior (README.md, receipts.yaml)
@@ -65,3 +65,16 @@ Each text input is capped at 64 MiB using both file metadata and a limited reade
 Summary discovery now inspects directory-entry metadata without following symlinks and skips symlinked entries entirely. Its recursion ceiling is derived from the configured summary template, so valid nested layouts remain discoverable while directories deeper than any possible match fail with a contextual error.
 
 Regression coverage exercises a broken summary symlink, an over-depth real directory, and the supported `records/{id}/summary.yaml` layout. The README now documents the symlink and depth boundaries.
+
+---
+
+## 2026-08-10 — Bound OCR render resolution
+
+**Disposition:** fixed
+**Addresses:** [ocr-dpi-has-no-upper-bound](README.md#ocr-dpi-has-no-upper-bound)
+**Commit:** 0e1e7367389114ed9d95b76ffd41f53eda81e2be
+**Author:** Codex
+
+OCR DPI is now validated against an explicit `1..=1200` range during corpus configuration loading. `PdfTools` repeats the same validation and returns an error during construction, replacing the previous `u32`-to-`u16` saturation that could turn an invalid value into a 65,535 DPI render request.
+
+Boundary tests pin acceptance at 1200, rejection at 1201, and rejection when a caller bypasses corpus validation and constructs `PdfTools` with `u32::MAX`. The public configuration docs and README state the enforced range.
