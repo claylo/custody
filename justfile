@@ -1,5 +1,4 @@
 set shell := ["bash", "-c"]
-set dotenv-load := true
 toolchain := `taplo get -f rust-toolchain.toml toolchain.channel | tr -d '"'`
 msrv := "1.89.0"
 

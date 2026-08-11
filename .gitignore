@@ -1,6 +1,7 @@
 /target
 /.cache
 /dist
+.env
 
 commit.txt
 scratch/
