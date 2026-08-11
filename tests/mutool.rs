@@ -1,4 +1,16 @@
-use receipts::pdf::{matching_bbox, mutool::parse_stext_json};
+use receipts::pdf::{
+    matching_bbox,
+    mutool::{parse_stext_json, validate_version},
+};
+
+#[test]
+fn validates_the_supported_mutool_version_line() {
+    assert!(validate_version("mutool version 1.28.0").is_ok());
+    assert!(validate_version("mutool version 1.28.99").is_ok());
+    assert!(validate_version("mutool version 1.27.9").is_err());
+    assert!(validate_version("mutool version 1.29.0").is_err());
+    assert!(validate_version("mutool unknown").is_err());
+}
 
 #[test]
 fn parses_structured_text_in_block_line_order() {

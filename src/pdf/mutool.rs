@@ -6,11 +6,22 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use serde::Deserialize;
 
-use super::Executable;
+use super::{Executable, NumericVersion, parse_numeric_version};
 use super::{ExtractedPage, PdfBbox, TextSpan};
 use crate::normalize::normalize;
 
 pub const PROFILE_NAME: &str = "mutool-native";
+pub const SUPPORTED_VERSION_RANGE: &str = ">=1.28.0, <1.29.0";
+const MIN_SUPPORTED_VERSION: NumericVersion = NumericVersion::new(1, 28, 0);
+const MAX_SUPPORTED_VERSION: NumericVersion = NumericVersion::new(1, 29, 0);
+
+pub fn validate_version(output: &str) -> Result<()> {
+    let version = parse_numeric_version(output)?;
+    if !(MIN_SUPPORTED_VERSION..MAX_SUPPORTED_VERSION).contains(&version) {
+        bail!("MuPDF version {version} is unsupported; supported {SUPPORTED_VERSION_RANGE}");
+    }
+    Ok(())
+}
 
 /// `MuPDF` command adapter.
 #[derive(Debug, Clone)]

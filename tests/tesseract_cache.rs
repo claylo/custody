@@ -4,7 +4,10 @@ use anyhow::Result;
 use receipts::pdf::{
     cache::{CacheManifest, CacheReadPolicy, OcrCache, OcrProfile, cache_key},
     matching_bbox,
-    tesseract::{OcrEngine, PageRenderer, ocr_page, parse_orientation, parse_tsv, profile_name},
+    tesseract::{
+        OcrEngine, PageRenderer, ocr_page, parse_orientation, parse_tsv, profile_name,
+        validate_version,
+    },
 };
 
 fn profile(mutool: &str, tesseract: &str) -> OcrProfile {
@@ -43,6 +46,15 @@ fn reconstructs_words_in_tsv_order() {
 fn profile_name_derives_from_settings() {
     assert_eq!(profile_name("eng", 300), "tesseract-eng-300dpi-v2");
     assert_eq!(profile_name("deu", 600), "tesseract-deu-600dpi-v2");
+}
+
+#[test]
+fn validates_the_supported_tesseract_version_line() {
+    assert!(validate_version("tesseract 5.5.0").is_ok());
+    assert!(validate_version("tesseract 5.5.99").is_ok());
+    assert!(validate_version("tesseract 5.4.9").is_err());
+    assert!(validate_version("tesseract 5.6.0").is_err());
+    assert!(validate_version("tesseract unknown").is_err());
 }
 
 #[test]

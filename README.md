@@ -29,6 +29,10 @@ brew install mupdf tesseract
 receipts doctor
 ```
 
+Supported runtime versions are MuPDF `>=1.28.0, <1.29.0` and Tesseract
+`>=5.5.0, <5.6.0`. `doctor` reports each tool as `missing`, `unsupported`, or
+`ok` and fails unless both versions are supported.
+
 `doctor` reports the resolved corpus, which config file was used, both tool
 versions, the extraction profiles, and the cache root. Run it first.
 

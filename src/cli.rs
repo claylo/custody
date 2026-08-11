@@ -168,6 +168,23 @@ struct PdfMatchDiagnostic {
     mean_confidence: Option<f64>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolStatus {
+    Ok,
+    Missing,
+    Unsupported,
+}
+
+impl ToolStatus {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Missing => "missing",
+            Self::Unsupported => "unsupported",
+        }
+    }
+}
+
 pub fn run() -> Result<()> {
     let cli: Cli = librebar::cli::parse_with(schema_metadata());
     if cli
@@ -614,18 +631,16 @@ fn doctor(corpus: &Corpus, tools: &PdfTools, json: bool, quiet: bool) -> Result<
         Ok(path) => (true, path.display().to_string()),
         Err(error) => (false, error.to_string()),
     };
-    let (mutool_ok, mutool_value) = match tools.mutool.version() {
-        Ok(version) => (true, version),
-        Err(error) => (false, error.to_string()),
-    };
+    let (mutool_status, mutool_value) =
+        probe_tool_version(tools.mutool.version(), crate::pdf::mutool::validate_version);
     let (tesseract_path_ok, tesseract_path_value) = match tools.tesseract.executable() {
         Ok(path) => (true, path.display().to_string()),
         Err(error) => (false, error.to_string()),
     };
-    let (tesseract_ok, tesseract_value) = match tools.tesseract.version() {
-        Ok(version) => (true, version),
-        Err(error) => (false, error.to_string()),
-    };
+    let (tesseract_status, tesseract_value) = probe_tool_version(
+        tools.tesseract.version(),
+        crate::pdf::tesseract::validate_version,
+    );
     let native_profile_value = crate::pdf::mutool::PROFILE_NAME.to_owned();
     let ocr_profile_value = crate::pdf::tesseract::profile_name(&ocr.lang, ocr_dpi);
 
@@ -645,17 +660,29 @@ fn doctor(corpus: &Corpus, tools: &PdfTools, json: bool, quiet: bool) -> Result<
             Err(error) => (false, error.to_string()),
         };
 
-    let all_ok = mutool_path_ok && mutool_ok && tesseract_path_ok && tesseract_ok && cache_ok;
+    let all_ok = mutool_path_ok
+        && mutool_status == ToolStatus::Ok
+        && tesseract_path_ok
+        && tesseract_status == ToolStatus::Ok
+        && cache_ok;
     let checks = [
-        ("corpus", true, &corpus_value),
-        ("config", true, &config_value),
-        ("mutool path", mutool_path_ok, &mutool_path_value),
-        ("mutool", mutool_ok, &mutool_value),
-        ("tesseract path", tesseract_path_ok, &tesseract_path_value),
-        ("tesseract", tesseract_ok, &tesseract_value),
-        ("native profile", true, &native_profile_value),
-        ("OCR profile", true, &ocr_profile_value),
-        ("cache", cache_ok, &cache_value),
+        ("corpus", "ok", &corpus_value),
+        ("config", "ok", &config_value),
+        (
+            "mutool path",
+            if mutool_path_ok { "ok" } else { "missing" },
+            &mutool_path_value,
+        ),
+        ("mutool", mutool_status.as_str(), &mutool_value),
+        (
+            "tesseract path",
+            if tesseract_path_ok { "ok" } else { "missing" },
+            &tesseract_path_value,
+        ),
+        ("tesseract", tesseract_status.as_str(), &tesseract_value),
+        ("native profile", "ok", &native_profile_value),
+        ("OCR profile", "ok", &ocr_profile_value),
+        ("cache", if cache_ok { "ok" } else { "error" }, &cache_value),
     ];
 
     if json {
@@ -663,8 +690,10 @@ fn doctor(corpus: &Corpus, tools: &PdfTools, json: bool, quiet: bool) -> Result<
             "corpus": corpus_value,
             "config": config_value,
             "mutool_path": mutool_path_value,
+            "mutool_status": mutool_status.as_str(),
             "mutool": mutool_value,
             "tesseract_path": tesseract_path_value,
+            "tesseract_status": tesseract_status.as_str(),
             "tesseract": tesseract_value,
             "native_profile": native_profile_value,
             "ocr_profile": ocr_profile_value,
@@ -672,14 +701,27 @@ fn doctor(corpus: &Corpus, tools: &PdfTools, json: bool, quiet: bool) -> Result<
         });
         print_json(&report)?;
     } else if !quiet {
-        for (name, valid, detail) in &checks {
-            println!("{name}: {} ({detail})", if *valid { "ok" } else { "error" });
+        for (name, status, detail) in &checks {
+            println!("{name}: {status} ({detail})");
         }
     }
     if !all_ok {
         bail!("doctor found unavailable requirements");
     }
     Ok(())
+}
+
+fn probe_tool_version(
+    version: Result<String>,
+    validate: fn(&str) -> Result<()>,
+) -> (ToolStatus, String) {
+    match version {
+        Ok(version) => match validate(&version) {
+            Ok(()) => (ToolStatus::Ok, version),
+            Err(error) => (ToolStatus::Unsupported, error.to_string()),
+        },
+        Err(error) => (ToolStatus::Missing, error.to_string()),
+    }
 }
 
 fn locate(corpus: &Corpus, tools: &PdfTools, args: &LocateArgs, json: bool) -> Result<()> {

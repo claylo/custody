@@ -236,8 +236,8 @@ fn doctor_uses_and_reports_configured_external_tool_paths() {
     let tools = tempfile::tempdir().unwrap();
     let mutool = tools.path().join("mutool-pinned");
     let tesseract = tools.path().join("tesseract-pinned");
-    fs::write(&mutool, "#!/bin/sh\necho 'mutool configured'\n").unwrap();
-    fs::write(&tesseract, "#!/bin/sh\necho 'tesseract configured'\n").unwrap();
+    fs::write(&mutool, "#!/bin/sh\necho 'mutool version 1.28.2'\n").unwrap();
+    fs::write(&tesseract, "#!/bin/sh\necho 'tesseract 5.5.3'\n").unwrap();
     fs::set_permissions(&mutool, fs::Permissions::from_mode(0o755)).unwrap();
     fs::set_permissions(&tesseract, fs::Permissions::from_mode(0o755)).unwrap();
     fs::write(
@@ -259,8 +259,41 @@ fn doctor_uses_and_reports_configured_external_tool_paths() {
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(stdout.contains(&format!("mutool path: ok ({})", mutool.display())));
     assert!(stdout.contains(&format!("tesseract path: ok ({})", tesseract.display())));
-    assert!(stdout.contains("mutool: ok (mutool configured)"));
-    assert!(stdout.contains("tesseract: ok (tesseract configured)"));
+    assert!(stdout.contains("mutool: ok (mutool version 1.28.2)"));
+    assert!(stdout.contains("tesseract: ok (tesseract 5.5.3)"));
+}
+
+#[cfg(unix)]
+#[test]
+fn doctor_rejects_unsupported_external_tool_versions() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let corpus = fixture_corpus();
+    let tools = tempfile::tempdir().unwrap();
+    let mutool = tools.path().join("mutool-old");
+    let tesseract = tools.path().join("tesseract-supported");
+    fs::write(&mutool, "#!/bin/sh\necho 'mutool version 1.27.9'\n").unwrap();
+    fs::write(&tesseract, "#!/bin/sh\necho 'tesseract 5.5.3'\n").unwrap();
+    fs::set_permissions(&mutool, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::set_permissions(&tesseract, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(
+        corpus.path().join("receipts.yaml"),
+        format!(
+            "cache:\n  root: \".cache/pdf-text\"\npdf:\n  tools:\n    mutool: \"{}\"\n    tesseract: \"{}\"\n",
+            mutool.display(),
+            tesseract.display(),
+        ),
+    )
+    .unwrap();
+    let empty_path = tempfile::tempdir().unwrap();
+
+    let output = receipts_with_path(corpus.path(), &["doctor"], empty_path.path());
+    let stdout = stdout(&output);
+
+    assert!(!output.status.success());
+    assert!(stdout.contains("mutool: unsupported"));
+    assert!(stdout.contains("supported >=1.28.0, <1.29.0"));
+    assert!(stdout.contains("tesseract: ok (tesseract 5.5.3)"));
 }
 
 #[test]
@@ -270,8 +303,8 @@ fn doctor_fails_when_runtime_tools_are_unavailable() {
     let output = receipts_with_path(corpus.path(), &["doctor"], empty_path.path());
 
     assert!(!output.status.success());
-    assert!(stdout(&output).contains("mutool: error"));
-    assert!(stdout(&output).contains("tesseract: error"));
+    assert!(stdout(&output).contains("mutool: missing"));
+    assert!(stdout(&output).contains("tesseract: missing"));
 }
 
 #[test]

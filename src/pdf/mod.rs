@@ -1,7 +1,7 @@
 //! PDF text extraction backends.
 
 use std::{
-    env, fs,
+    env, fmt, fs,
     path::{Path, PathBuf},
 };
 
@@ -11,6 +11,59 @@ use serde::Serialize;
 pub mod cache;
 pub mod mutool;
 pub mod tesseract;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct NumericVersion {
+    major: u32,
+    minor: u32,
+    patch: u32,
+}
+
+impl NumericVersion {
+    pub(crate) const fn new(major: u32, minor: u32, patch: u32) -> Self {
+        Self {
+            major,
+            minor,
+            patch,
+        }
+    }
+}
+
+impl fmt::Display for NumericVersion {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}.{}.{}", self.major, self.minor, self.patch)
+    }
+}
+
+pub(crate) fn parse_numeric_version(output: &str) -> Result<NumericVersion> {
+    let token = output
+        .split_whitespace()
+        .find(|token| token.as_bytes().first().is_some_and(u8::is_ascii_digit))
+        .context("version probe output contains no numeric version")?;
+    let mut components = token.split('.');
+    let major = parse_version_component(components.next(), output)?;
+    let minor = parse_version_component(components.next(), output)?;
+    let patch = parse_version_component(components.next(), output)?;
+    if components.next().is_some() {
+        bail!("version probe output contains an unsupported version shape: {output:?}");
+    }
+    Ok(NumericVersion::new(major, minor, patch))
+}
+
+fn parse_version_component(component: Option<&str>, output: &str) -> Result<u32> {
+    let component = component
+        .context("version probe output must contain major, minor, and patch components")?;
+    let digits = component
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>();
+    if digits.is_empty() {
+        bail!("version probe output contains an invalid component: {output:?}");
+    }
+    digits
+        .parse()
+        .with_context(|| format!("version component is out of range: {digits}"))
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct Executable {

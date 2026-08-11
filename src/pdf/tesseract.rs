@@ -8,13 +8,25 @@ use std::{
 use anyhow::{Context, Result, bail};
 
 use super::{
-    Executable, ExtractedPage, PdfBbox, TextSpan,
+    Executable, ExtractedPage, NumericVersion, PdfBbox, TextSpan,
     cache::{CacheManifest, OcrCache, OcrProfile},
     mutool::Mutool,
+    parse_numeric_version,
 };
 use crate::normalize::normalize;
 
 const ORIENTATION_COMMAND: &str = "tesseract IMAGE stdout -l osd --psm 0";
+pub const SUPPORTED_VERSION_RANGE: &str = ">=5.5.0, <5.6.0";
+const MIN_SUPPORTED_VERSION: NumericVersion = NumericVersion::new(5, 5, 0);
+const MAX_SUPPORTED_VERSION: NumericVersion = NumericVersion::new(5, 6, 0);
+
+pub fn validate_version(output: &str) -> Result<()> {
+    let version = parse_numeric_version(output)?;
+    if !(MIN_SUPPORTED_VERSION..MAX_SUPPORTED_VERSION).contains(&version) {
+        bail!("Tesseract version {version} is unsupported; supported {SUPPORTED_VERSION_RANGE}");
+    }
+    Ok(())
+}
 
 /// Cache profile name for a language and render resolution.
 #[must_use]
