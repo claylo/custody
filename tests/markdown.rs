@@ -82,6 +82,7 @@ fn resolves_units_by_exact_coordinates_and_kind() {
     let index = UnitIndex::new(&units);
     let second = &units[1];
 
+    assert_eq!((second.line.get(), second.column.get()), (3, 1));
     assert_eq!(
         resolve_unit(
             &units,
