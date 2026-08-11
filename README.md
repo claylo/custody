@@ -200,6 +200,9 @@ stable ordering. `propose` never writes to any file.
 commented YAML safe to paste and edit, with a suggested `receipts locate`
 command to commit the top candidate.
 
+JSON output always uses `{"summaries": [...]}`, including targeted runs and
+empty corpora, so consumers do not need a count-dependent parser.
+
 Multi-summary runs continue past malformed summaries and filename/ID
 mismatches. Aggregate JSON keeps the successful proposals alongside per-ID
 issues; human output writes those issues to stderr. Either mode exits non-zero

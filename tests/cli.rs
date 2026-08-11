@@ -624,7 +624,12 @@ fn propose_emits_candidates_for_claims_without_evidence() {
     assert!(output.status.success(), "{}", stderr(&output));
 
     let stdout = stdout(&output);
-    let report: serde_json::Value = serde_json::from_str(&stdout).expect("propose emits JSON");
+    let payload: serde_json::Value = serde_json::from_str(&stdout).expect("propose emits JSON");
+    assert_eq!(
+        payload.as_object().unwrap().keys().collect::<Vec<_>>(),
+        ["summaries"]
+    );
+    let report = &payload["summaries"][0];
     assert_eq!(report["id"], "smith-2019");
     assert_eq!(report["claims"].as_array().unwrap().len(), 1);
 
@@ -649,6 +654,51 @@ fn propose_emits_candidates_for_claims_without_evidence() {
     assert_eq!(candidate["markdown"]["unit"], "paragraph");
     assert_eq!(candidate["pdf"]["page"], 1);
     assert_eq!(candidate["pdf"]["backend"], "mutool-native");
+}
+
+#[test]
+fn propose_json_shape_is_stable_for_zero_and_two_summaries() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::create_dir(temp.path().join("summaries")).unwrap();
+    fs::write(
+        temp.path().join("receipts.yaml"),
+        "cache:\n  root: \".cache/pdf-text\"\n",
+    )
+    .unwrap();
+
+    let empty = receipts_json(temp.path(), &["propose"]);
+    assert!(empty.status.success(), "{}", stderr(&empty));
+    let empty: serde_json::Value = serde_json::from_slice(&empty.stdout).unwrap();
+    assert_eq!(
+        empty.as_object().unwrap().keys().collect::<Vec<_>>(),
+        ["summaries"]
+    );
+    assert!(empty["summaries"].as_array().unwrap().is_empty());
+
+    fs::create_dir(temp.path().join("pdfs")).unwrap();
+    for id in ["alpha", "beta"] {
+        fs::create_dir_all(temp.path().join(format!("md/{id}"))).unwrap();
+        fs::write(
+            temp.path().join(format!("summaries/{id}.yaml")),
+            format!("id: {id}\nclaims:\n  - \"The rate was 67.5% in controls.\"\n"),
+        )
+        .unwrap();
+        fs::write(
+            temp.path().join(format!("md/{id}/{id}.md")),
+            "The rate was 67.5% in the control group.\n",
+        )
+        .unwrap();
+        fs::write(temp.path().join(format!("pdfs/{id}.pdf")), TEXT_PDF).unwrap();
+    }
+
+    let pair = receipts_json(temp.path(), &["propose"]);
+    assert!(pair.status.success(), "{}", stderr(&pair));
+    let pair: serde_json::Value = serde_json::from_slice(&pair.stdout).unwrap();
+    assert_eq!(
+        pair.as_object().unwrap().keys().collect::<Vec<_>>(),
+        ["summaries"]
+    );
+    assert_eq!(pair["summaries"].as_array().unwrap().len(), 2);
 }
 
 #[test]

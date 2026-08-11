@@ -379,10 +379,10 @@ fn schema_metadata() -> SchemaMetadata {
             CommandMetadata::new()
                 .mutating(false)
                 .stability(Stability::Stable)
-                .output_field(OutputField::new("id", "string").description("Summary document ID"))
-                .output_field(OutputField::new("claims", "object[]").description(
-                    "Per-claim proposals: {claim, required_tokens, uncovered_tokens, advisory_tokens, candidates}",
-                ))
+                .output_field(
+                    OutputField::new("summaries", "object[]")
+                        .description("Per-summary proposal reports: {id, claims or issues}"),
+                )
                 .example(CommandExample::new([
                     "smith-2019",
                     "--all",
@@ -886,11 +886,7 @@ fn propose_cmd(
         reports.push(ProposalSummary::Proposed(report));
     }
     if json {
-        if reports.len() == 1 {
-            print_json(&reports.into_iter().next().unwrap())?;
-        } else {
-            print_json(&serde_json::json!({ "summaries": reports }))?;
-        }
+        print_json(&serde_json::json!({ "summaries": reports }))?;
     }
     if failed > 0 {
         bail!("{failed} summary or summaries could not be proposed");
