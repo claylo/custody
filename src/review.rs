@@ -69,7 +69,7 @@ fn canonical_locators_json(locators: &[crate::evidence::Locator]) -> String {
         .map(|loc| {
             let mut locator = serde_json::to_value(loc).expect("Locator is serializable");
             normalize_exact_in_value(&mut locator);
-            sort_keys(&locator)
+            sort_keys(locator)
         })
         .collect();
     serde_json::to_string(&values).expect("JSON array is serializable")
@@ -85,21 +85,21 @@ fn normalize_exact_in_value(value: &mut serde_json::Value) {
 }
 
 /// Rebuild a JSON value with object keys sorted lexicographically at every level.
-fn sort_keys(value: &serde_json::Value) -> serde_json::Value {
+fn sort_keys(value: serde_json::Value) -> serde_json::Value {
     match value {
         serde_json::Value::Object(map) => {
             let mut sorted = serde_json::Map::new();
-            let mut keys: Vec<&String> = map.keys().collect();
-            keys.sort();
-            for key in keys {
-                sorted.insert(key.clone(), sort_keys(&map[key]));
+            let mut entries: Vec<_> = map.into_iter().collect();
+            entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+            for (key, value) in entries {
+                sorted.insert(key, sort_keys(value));
             }
             serde_json::Value::Object(sorted)
         }
         serde_json::Value::Array(arr) => {
-            serde_json::Value::Array(arr.iter().map(sort_keys).collect())
+            serde_json::Value::Array(arr.into_iter().map(sort_keys).collect())
         }
-        other => other.clone(),
+        other => other,
     }
 }
 
