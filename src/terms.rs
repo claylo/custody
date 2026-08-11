@@ -61,24 +61,24 @@ impl Terms {
         if self.is_canonical() {
             return Ok(());
         }
-        rename(value, &self.claims, "claims", true)?;
+        rename_strict(value, &self.claims, "claims")?;
         if let Some(evidence) = value.get_mut("evidence") {
-            rename(evidence, &self.claims, "claims", true)?;
+            rename_strict(evidence, &self.claims, "claims")?;
             if let Some(entries) = evidence.get_mut("claims").and_then(Value::as_array_mut) {
                 let hash_key = self.hash_key();
                 for entry in entries {
-                    rename(entry, &self.claim, "claim", true)?;
-                    rename(entry, &hash_key, "claim_sha256", true)?;
+                    rename_strict(entry, &self.claim, "claim")?;
+                    rename_strict(entry, &hash_key, "claim_sha256")?;
                 }
             }
         }
         if let Some(review) = value.get_mut("review") {
-            rename(review, &self.claims, "claims", true)?;
+            rename_strict(review, &self.claims, "claims")?;
             if let Some(entries) = review.get_mut("claims").and_then(Value::as_array_mut) {
                 let hash_key = self.hash_key();
                 for entry in entries {
-                    rename(entry, &self.claim, "claim", true)?;
-                    rename(entry, &hash_key, "claim_sha256", true)?;
+                    rename_strict(entry, &self.claim, "claim")?;
+                    rename_strict(entry, &hash_key, "claim_sha256")?;
                 }
             }
         }
@@ -96,7 +96,7 @@ impl Terms {
                     self.localize_entry(entry);
                 }
             }
-            drop(rename(evidence, "claims", &self.claims, false));
+            rename(evidence, "claims", &self.claims);
         }
         if let Some(review) = value.get_mut("review") {
             if let Some(entries) = review.get_mut("claims").and_then(Value::as_array_mut) {
@@ -104,9 +104,9 @@ impl Terms {
                     self.localize_entry(entry);
                 }
             }
-            drop(rename(review, "claims", &self.claims, false));
+            rename(review, "claims", &self.claims);
         }
-        drop(rename(value, "claims", &self.claims, false));
+        rename(value, "claims", &self.claims);
     }
 
     /// Rewrite one claim-evidence entry to the configured vocabulary, in place.
@@ -114,8 +114,8 @@ impl Terms {
         if self.is_canonical() {
             return;
         }
-        drop(rename(entry, "claim_sha256", &self.hash_key(), false));
-        drop(rename(entry, "claim", &self.claim, false));
+        rename(entry, "claim_sha256", &self.hash_key());
+        rename(entry, "claim", &self.claim);
     }
 
     /// Rewrite a `locate` record to the configured vocabulary, in place.
@@ -129,26 +129,32 @@ impl Terms {
         if let Some(entry) = value.get_mut("claim") {
             self.localize_entry(entry);
         }
-        drop(rename(value, "claim", &self.claim, false));
+        rename(value, "claim", &self.claim);
     }
 }
 
+fn rename_strict(value: &mut Value, from: &str, to: &str) -> Result<()> {
+    if from != to
+        && let Some(object) = value.as_object()
+        && object.contains_key(from)
+        && object.contains_key(to)
+    {
+        bail!("document uses both {from:?} and {to:?}; use one vocabulary");
+    }
+    rename(value, from, to);
+    Ok(())
+}
+
 /// Move `from` to `to` within one object, preserving insertion order.
-///
-/// With `strict`, a pre-existing `to` key is a conflict rather than something to
-/// overwrite.
-fn rename(value: &mut Value, from: &str, to: &str, strict: bool) -> Result<()> {
+fn rename(value: &mut Value, from: &str, to: &str) {
     if from == to {
-        return Ok(());
+        return;
     }
     let Some(object) = value.as_object_mut() else {
-        return Ok(());
+        return;
     };
     if !object.contains_key(from) {
-        return Ok(());
-    }
-    if strict && object.contains_key(to) {
-        bail!("document uses both {from:?} and {to:?}; use one vocabulary");
+        return;
     }
     // Rebuild in place so the renamed key keeps its original position rather
     // than moving to the end, which would churn `locate` output ordering.
@@ -163,5 +169,4 @@ fn rename(value: &mut Value, from: &str, to: &str, strict: bool) -> Result<()> {
             }
         })
         .collect();
-    Ok(())
 }

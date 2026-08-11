@@ -8,10 +8,11 @@ use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 
 fn hex(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        use std::fmt::Write;
-        let _ = write!(s, "{b:02x}");
+    for &byte in bytes {
+        s.push(char::from(DIGITS[usize::from(byte >> 4)]));
+        s.push(char::from(DIGITS[usize::from(byte & 0x0f)]));
     }
     s
 }
