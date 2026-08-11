@@ -213,19 +213,37 @@ pub fn run() -> Result<()> {
     )?;
     match cli.command {
         Command::Doctor => doctor(&corpus, &tools, json, quiet),
-        Command::Locate(args) => locate(&corpus, &tools, &args, json),
-        Command::Check(args) => check(&corpus, &tools, &args.ids, json, quiet, args.require_review),
-        Command::Audit(args) => audit(
-            &corpus,
-            &tools,
-            args.strict,
-            args.require_review,
-            &args.ids,
-            json,
-            quiet,
-        ),
-        Command::Propose(args) => propose_cmd(&corpus, &tools, &args, json, quiet),
+        Command::Locate(args) => {
+            preflight_toolchain(&tools)?;
+            locate(&corpus, &tools, &args, json)
+        }
+        Command::Check(args) => {
+            preflight_toolchain(&tools)?;
+            check(&corpus, &tools, &args.ids, json, quiet, args.require_review)
+        }
+        Command::Audit(args) => {
+            preflight_toolchain(&tools)?;
+            audit(
+                &corpus,
+                &tools,
+                args.strict,
+                args.require_review,
+                &args.ids,
+                json,
+                quiet,
+            )
+        }
+        Command::Propose(args) => {
+            preflight_toolchain(&tools)?;
+            propose_cmd(&corpus, &tools, &args, json, quiet)
+        }
     }
+}
+
+fn preflight_toolchain(tools: &PdfTools) -> Result<()> {
+    tools
+        .validate_toolchain()
+        .context("PDF toolchain preflight failed")
 }
 
 const fn cache_read_policy(cache_is_corpus_local: bool, trust_cache: bool) -> CacheReadPolicy {

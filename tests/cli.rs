@@ -308,6 +308,24 @@ fn doctor_fails_when_runtime_tools_are_unavailable() {
 }
 
 #[test]
+fn aggregate_commands_abort_before_judging_when_pdf_tools_are_unavailable() {
+    let corpus = fixture_corpus();
+    let empty_path = tempfile::tempdir().unwrap();
+
+    for args in [
+        &["check", "missing-evidence"][..],
+        &["audit", "missing-evidence"][..],
+    ] {
+        let output = receipts_with_path(corpus.path(), args, empty_path.path());
+        let stderr = stderr(&output);
+
+        assert!(!output.status.success());
+        assert!(stderr.contains("PDF toolchain preflight failed"));
+        assert!(!stderr.contains("invalid evidence"));
+    }
+}
+
+#[test]
 fn locate_refuses_ocr_fallback_when_disabled() {
     let corpus = fixture_corpus();
     fs::write(

@@ -262,6 +262,13 @@ impl PdfTools {
         let profile = tesseract::resolve_profile(&self.mutool, &self.tesseract)?;
         Ok(self.ocr_profile.get_or_init(|| profile))
     }
+
+    pub fn validate_toolchain(&self) -> Result<()> {
+        let profile = self.ocr_profile()?;
+        mutool::validate_version(&profile.mutool_version)?;
+        tesseract::validate_version(&profile.tesseract_version)?;
+        Ok(())
+    }
 }
 
 impl PdfTextProvider for PdfTools {
