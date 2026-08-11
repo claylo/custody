@@ -2,12 +2,12 @@
 audit: 2026-08-10-20-full-repo
 last_updated: 2026-08-10
 status:
-  fixed: 30
+  fixed: 33
   mitigated: 0
   accepted: 0
   disputed: 0
   deferred: 0
-  open: 18
+  open: 15
 ---
 
 # Actions Taken: Full repository — Rust source (src/, tests/), dependencies, configuration (.config/, justfile, Cargo.toml, deny.toml), and documented behavior (README.md, receipts.yaml)
@@ -364,3 +364,40 @@ Scored candidates borrow prepared spans, share section metadata through `Rc<[Str
 Added a `UnitIndex` keyed by unit kind, line, and column, with explicit unique and ambiguous states. Validation builds the index once beside each parsed Markdown document and resolves locator coordinates with constant-time lookups while preserving the existing missing and multiple-unit diagnostics.
 
 Each resolved unit is retained through the claim pass and reused by weak-section evaluation, eliminating the second lookup. Regression coverage pins successful, missing-kind, and duplicate-coordinate behavior; the complete gate passes 200 tests.
+
+---
+
+## 2026-08-10 — Bound and memoize proposal PDF verification
+
+**Disposition:** fixed
+**Addresses:** [pdf-verification-unbounded-when-candidates-fail](README.md#pdf-verification-unbounded-when-candidates-fail)
+**Commit:** 09cbfd941ed34562b62c467b3b2a565be503708d
+**Author:** Codex
+
+Proposal generation now limits previously unseen PDF span checks for each claim to eight times the requested candidate count. Failed and successful verification results are memoized by source and exact text across claims, so repeated spans do not consume the per-claim budget or trigger another PDF scan.
+
+A regression places a valid span after nine higher-ranked PDF misses and confirms a one-candidate request stops after eight attempts. The README documents the deterministic verification budget.
+
+---
+
+## 2026-08-10 — Consume owned JSON during canonical sorting
+
+**Disposition:** fixed
+**Addresses:** [owned-json-value-borrowed-then-deep-cloned](README.md#owned-json-value-borrowed-then-deep-cloned)
+**Commit:** 5e3f829c933fc14498623911bf8ce17d51e1fa55
+**Author:** Codex
+
+Changed canonical JSON sorting to consume each owned `serde_json::Value`, moving object keys, array elements, and leaf values into the result instead of deep-cloning the locator tree. Review hash semantics remain unchanged, as confirmed by the complete deterministic hash test suite.
+
+---
+
+## 2026-08-10 — Borrow configured corpus source names
+
+**Disposition:** fixed
+**Addresses:** [source-names-allocates-a-vec-to-answer-a-lookup](README.md#source-names-allocates-a-vec-to-answer-a-lookup)
+**Commit:** 205d613d2f47000596c7efbe2ed4c30318a5a2ef
+**Author:** Codex
+
+`Corpus::source_names` now returns a borrowed iterator, and `Corpus::declares_source` delegates membership checks directly to the configured source map. Proposal generation iterates borrowed names, while validation replaces allocation plus linear scan with the map lookup.
+
+Foundation regressions cover iteration order and positive and negative membership. The complete repository gate passes 201 tests.
