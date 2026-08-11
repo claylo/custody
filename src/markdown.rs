@@ -134,8 +134,10 @@ pub fn parse_units(source: &str) -> Vec<MarkdownUnit> {
             }
             Event::InlineHtml(tag) if image_depth == 0 && html_block_depth == 0 => {
                 let trimmed = tag.trim_start();
-                if trimmed.len() >= 3
-                    && trimmed[..3].eq_ignore_ascii_case("<br")
+                if trimmed
+                    .as_bytes()
+                    .get(..3)
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case(b"<br"))
                     && let Some(builder) = active.as_mut()
                 {
                     builder.text.push(' ');

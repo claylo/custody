@@ -51,6 +51,13 @@ fn treats_br_as_whitespace_and_ignores_formatting_tags() {
 }
 
 #[test]
+fn ignores_multibyte_inline_html_without_panicking() {
+    let units = parse_units("para <?é?> tail");
+
+    assert_eq!(units[0].text, "para tail");
+}
+
+#[test]
 fn emits_heading_and_code_block_units() {
     let units = parse_units("# Heading\n\n```text\nalpha  beta\n```\n");
 
