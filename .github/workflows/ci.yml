@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install CI tools
+        uses: taiki-e/install-action@fa0dd4cd0a40696e6f9766370614a5ce482e6aa8 # v2.77.5
+        with:
+          tool: taplo,just,cargo-nextest,cargo-deny
+          fallback: none
+
+      - name: Read Rust versions
+        id: versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "toolchain=$(taplo get -f rust-toolchain.toml toolchain.channel | tr -d '"')" >> "$GITHUB_OUTPUT"
+          echo "msrv=$(taplo get -f Cargo.toml package.rust-version | tr -d '"')" >> "$GITHUB_OUTPUT"
+
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@5b842231ba77f5c045dba54ac5560fed2db780e2
+        with:
+          toolchain: ${{ steps.versions.outputs.toolchain }}
+          components: clippy,rustfmt
+
+      - name: Install minimum supported Rust version
+        uses: dtolnay/rust-toolchain@5b842231ba77f5c045dba54ac5560fed2db780e2
+        with:
+          toolchain: ${{ steps.versions.outputs.msrv }}
+
+      - name: Cache Cargo and build outputs
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          shared-key: ci
+
+      - name: Run verification gate
+        run: just ci
