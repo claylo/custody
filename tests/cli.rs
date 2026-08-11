@@ -281,6 +281,31 @@ fn doctor_reports_corpus_and_executables() {
     assert!(output.contains("OCR profile: ok (tesseract-eng-300dpi-v2)"));
 }
 
+#[test]
+fn doctor_json_declares_the_machine_contract() {
+    let corpus = fixture_corpus();
+    let output = receipts_json(corpus.path(), &["doctor"]);
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        report.as_object().unwrap().keys().collect::<Vec<_>>(),
+        [
+            "cache",
+            "config",
+            "corpus",
+            "mutool",
+            "mutool_path",
+            "mutool_status",
+            "native_profile",
+            "ocr_profile",
+            "tesseract",
+            "tesseract_path",
+            "tesseract_status",
+        ]
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn closed_stdout_is_a_clean_exit() {
@@ -694,7 +719,7 @@ fn propose_emits_candidates_for_claims_without_evidence() {
     .unwrap();
     fs::write(
         temp.path().join("summaries/smith-2019.yaml"),
-        "id: smith-2019\nclaims:\n  - \"The rate was 67.5% in controls.\"\n",
+        "id: smith-2019\nclaims:\n  - \"The rate for Control Group was 67.5%.\"\n",
     )
     .unwrap();
     fs::write(
@@ -716,6 +741,7 @@ fn propose_emits_candidates_for_claims_without_evidence() {
     let claim = &report.claims[0];
     assert_eq!(claim.claim, 0);
     assert_eq!(claim.required_tokens, ["67.5%"]);
+    assert_eq!(claim.advisory_tokens, ["Control Group"]);
     assert!(claim.uncovered_tokens.is_empty());
     assert!(
         !claim.candidates.is_empty(),
@@ -772,7 +798,7 @@ fn propose_json_shape_is_stable_for_zero_and_two_summaries() {
         fs::write(temp.path().join(format!("pdfs/{id}.pdf")), TEXT_PDF).unwrap();
     }
 
-    let pair = receipts_json(temp.path(), &["propose"]);
+    let pair = receipts_json(temp.path(), &["propose", "alpha", "beta"]);
     assert!(pair.status.success(), "{}", stderr(&pair));
     let pair: serde_json::Value = serde_json::from_slice(&pair.stdout).unwrap();
     assert_eq!(
