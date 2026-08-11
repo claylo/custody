@@ -91,7 +91,7 @@ pub struct PdfConfig {
 pub struct OcrConfig {
     /// Whether OCR fallback is permitted at all.
     pub enabled: bool,
-    /// Render resolution for OCR, in dots per inch.
+    /// Render resolution for OCR, in dots per inch. Valid values are 1–1200.
     pub dpi: u32,
     /// Tesseract language code.
     pub lang: String,
@@ -274,9 +274,7 @@ fn validate(config: &Config) -> Result<()> {
             validate_template(template)?;
         }
     }
-    if config.pdf.ocr.dpi == 0 {
-        bail!("pdf.ocr.dpi must be greater than zero");
-    }
+    validated_ocr_dpi(config.pdf.ocr.dpi)?;
     if config.pdf.ocr.lang.is_empty() {
         bail!("pdf.ocr.lang must not be empty");
     }
@@ -285,6 +283,13 @@ fn validate(config: &Config) -> Result<()> {
     }
     config.terms.validate()?;
     Ok(())
+}
+
+pub(crate) fn validated_ocr_dpi(dpi: u32) -> Result<u16> {
+    if !(1..=1200).contains(&dpi) {
+        bail!("pdf.ocr.dpi must be 1–1200");
+    }
+    u16::try_from(dpi).context("pdf.ocr.dpi cannot be represented by the OCR backend")
 }
 
 pub(crate) fn validate_cache_root(root: &str) -> Result<()> {

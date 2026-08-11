@@ -5,6 +5,7 @@ use receipts::{
     corpus::Corpus,
     hash::{sha256_bytes, sha256_file},
     normalize::normalize,
+    pdf::PdfTools,
 };
 
 fn write_config(dir: &std::path::Path, body: &str) {
@@ -329,6 +330,45 @@ fn rejects_invalid_page_segmentation_mode() {
         "cache:\n  root: \"c\"\npdf:\n  ocr:\n    page_segmentation_mode: 14\n",
     );
     assert!(Corpus::discover_from(dir.path(), None).is_err());
+}
+
+#[test]
+fn rejects_ocr_dpi_above_the_resource_ceiling() {
+    let dir = tempfile::tempdir().unwrap();
+    write_config(
+        dir.path(),
+        "cache:\n  root: \"c\"\npdf:\n  ocr:\n    dpi: 1201\n",
+    );
+
+    let error = Corpus::discover_from(dir.path(), None).unwrap_err();
+
+    assert!(error.to_string().contains("pdf.ocr.dpi must be 1–1200"));
+}
+
+#[test]
+fn accepts_the_maximum_ocr_dpi() {
+    let dir = tempfile::tempdir().unwrap();
+    write_config(
+        dir.path(),
+        "cache:\n  root: \"c\"\npdf:\n  ocr:\n    dpi: 1200\n",
+    );
+
+    let corpus = Corpus::discover_from(dir.path(), None).unwrap();
+
+    assert_eq!(corpus.ocr_config().dpi, 1200);
+}
+
+#[test]
+fn pdf_tools_rejects_an_unvalidated_ocr_dpi() {
+    let dir = tempfile::tempdir().unwrap();
+    let ocr = config::OcrConfig {
+        dpi: u32::MAX,
+        ..config::OcrConfig::default()
+    };
+
+    let error = PdfTools::new(dir.path().join("cache"), &ocr).unwrap_err();
+
+    assert!(error.to_string().contains("pdf.ocr.dpi must be 1–1200"));
 }
 
 #[test]

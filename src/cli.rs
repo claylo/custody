@@ -191,7 +191,7 @@ pub fn run() -> Result<()> {
         corpus.cache_root().to_path_buf(),
         corpus.ocr_config(),
         read_policy,
-    );
+    )?;
     match cli.command {
         Command::Doctor => doctor(&corpus, &tools, json, quiet),
         Command::Locate(args) => locate(&corpus, &tools, &args, json),

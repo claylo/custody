@@ -97,25 +97,23 @@ pub struct PdfTools {
 }
 
 impl PdfTools {
-    #[must_use]
-    pub fn new(cache_root: std::path::PathBuf, ocr: &crate::config::OcrConfig) -> Self {
+    pub fn new(cache_root: std::path::PathBuf, ocr: &crate::config::OcrConfig) -> Result<Self> {
         Self::with_cache_read_policy(cache_root, ocr, cache::CacheReadPolicy::Trusted)
     }
 
-    #[must_use]
     pub fn with_cache_read_policy(
         cache_root: std::path::PathBuf,
         ocr: &crate::config::OcrConfig,
         read_policy: cache::CacheReadPolicy,
-    ) -> Self {
-        let dpi = u16::try_from(ocr.dpi).unwrap_or(u16::MAX);
-        Self {
+    ) -> Result<Self> {
+        let dpi = crate::config::validated_ocr_dpi(ocr.dpi)?;
+        Ok(Self {
             mutool: mutool::Mutool::default(),
             tesseract: tesseract::Tesseract::new(ocr.lang.clone(), dpi, ocr.page_segmentation_mode),
             cache: cache::OcrCache::with_read_policy(cache_root, read_policy),
             ocr_enabled: ocr.enabled,
             ocr_profile: std::cell::OnceCell::new(),
-        }
+        })
     }
 
     fn ocr_profile(&self) -> Result<&cache::OcrProfile> {
