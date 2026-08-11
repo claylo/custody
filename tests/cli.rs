@@ -8,7 +8,14 @@ use receipts::coordinate::{ClaimIndex, Column, Line, Page};
 use receipts::evidence::{ClaimEvidence, Locator, MarkdownLocator, PdfBackend, PdfLocator};
 use receipts::hash::{sha256_bytes, sha256_file};
 use receipts::markdown::UnitKind;
+use receipts::propose::ProposalReport;
 use receipts::review::evidence_sha256;
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProposalEnvelope {
+    summaries: Vec<ProposalReport>,
+}
 
 fn receipts(corpus: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_receipts"))
@@ -701,36 +708,33 @@ fn propose_emits_candidates_for_claims_without_evidence() {
     assert!(output.status.success(), "{}", stderr(&output));
 
     let stdout = stdout(&output);
-    let payload: serde_json::Value = serde_json::from_str(&stdout).expect("propose emits JSON");
-    assert_eq!(
-        payload.as_object().unwrap().keys().collect::<Vec<_>>(),
-        ["summaries"]
-    );
-    let report = &payload["summaries"][0];
-    assert_eq!(report["id"], "smith-2019");
-    assert_eq!(report["claims"].as_array().unwrap().len(), 1);
+    let payload: ProposalEnvelope = serde_json::from_str(&stdout).expect("propose emits JSON");
+    let report = &payload.summaries[0];
+    assert_eq!(report.id, "smith-2019");
+    assert_eq!(report.claims.len(), 1);
 
-    let claim = &report["claims"][0];
-    assert_eq!(claim["claim"], 0);
-    assert_eq!(claim["required_tokens"], serde_json::json!(["67.5%"]));
-    assert_eq!(claim["uncovered_tokens"], serde_json::json!([]));
+    let claim = &report.claims[0];
+    assert_eq!(claim.claim, 0);
+    assert_eq!(claim.required_tokens, ["67.5%"]);
+    assert!(claim.uncovered_tokens.is_empty());
     assert!(
-        !claim["candidates"].as_array().unwrap().is_empty(),
+        !claim.candidates.is_empty(),
         "the claim's token appears in both sources: {stdout}"
     );
 
-    let candidate = &claim["candidates"][0];
-    assert_eq!(candidate["source"], "default");
-    assert_eq!(
-        candidate["exact"],
-        "The rate was 67.5% in the control group."
-    );
-    assert_eq!(candidate["coverage"]["matched"], 1);
-    assert_eq!(candidate["coverage"]["required"], 1);
-    assert_eq!(candidate["markdown"]["line"], 1);
-    assert_eq!(candidate["markdown"]["unit"], "paragraph");
-    assert_eq!(candidate["pdf"]["page"], 1);
-    assert_eq!(candidate["pdf"]["backend"], "mutool-native");
+    let candidate = &claim.candidates[0];
+    assert_eq!(candidate.source, "default");
+    assert_eq!(candidate.exact, "The rate was 67.5% in the control group.");
+    assert_eq!(candidate.coverage.matched, 1);
+    assert_eq!(candidate.coverage.required, 1);
+    assert_eq!(candidate.markdown.line, 1);
+    assert_eq!(candidate.markdown.unit, UnitKind::Paragraph);
+    assert_eq!(candidate.pdf.page, 1);
+    assert_eq!(candidate.pdf.backend, PdfBackend::MutoolNative);
+
+    let round_trip: ProposalReport =
+        serde_json::from_str(&serde_json::to_string(report).unwrap()).unwrap();
+    assert_eq!(&round_trip, report);
 }
 
 #[test]

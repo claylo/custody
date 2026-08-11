@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     config::TokenSeverity,
@@ -18,7 +18,7 @@ use crate::{
 };
 
 /// Complete accumulated result for one summary.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValidationReport {
     pub id: String,
     pub issues: Vec<EvidenceIssue>,

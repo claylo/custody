@@ -73,7 +73,7 @@ fn default_source_name() -> String {
     DEFAULT_SOURCE.to_owned()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MarkdownLocator {
     pub line: Line,
@@ -83,7 +83,7 @@ pub struct MarkdownLocator {
     pub section: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PdfLocator {
     pub page: Page,
@@ -114,7 +114,7 @@ impl fmt::Display for PdfBackend {
 }
 
 /// How much weight an issue carries: errors fail validation, warnings do not.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
     Error,
@@ -122,7 +122,7 @@ pub enum Severity {
 }
 
 /// One accumulated evidence-contract problem.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EvidenceIssue {
     pub code: String,
     pub severity: Severity,

@@ -8,7 +8,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use anyhow::Result;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::coordinate::{ClaimIndex, Column, Line, Page};
 use crate::corpus::Corpus;
@@ -19,14 +19,14 @@ use crate::pdf::PdfTextProvider;
 use crate::tokens::{self, ExtractedTokens};
 
 /// Every claim considered for one summary, with its candidates.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProposalReport {
     pub id: String,
     pub claims: Vec<ClaimProposal>,
 }
 
 /// Candidates offered for one claim, and the tokens none of them reach.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClaimProposal {
     pub claim: ClaimIndex,
     pub required_tokens: Vec<String>,
@@ -36,7 +36,7 @@ pub struct ClaimProposal {
 }
 
 /// One verified span, ready to be written as a locator.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Candidate {
     pub source: String,
     pub exact: String,
@@ -46,7 +46,7 @@ pub struct Candidate {
 }
 
 /// How many of a claim's required tokens one candidate reaches.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CoverageScore {
     pub matched: usize,
     pub required: usize,

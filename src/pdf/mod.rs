@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::coordinate::Page;
 
@@ -140,7 +140,7 @@ pub struct TextSpan {
 }
 
 /// Bounding rectangle in backend page coordinates.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PdfBbox {
     pub x: f64,
     pub y: f64,
