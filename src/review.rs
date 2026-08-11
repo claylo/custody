@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::evidence::{ClaimEvidence, Evidence, EvidenceIssue, Severity};
+use crate::evidence::{ClaimEvidence, Evidence, EvidenceIssue, IssueCode, Severity, issue_code};
 use crate::hash::sha256_bytes;
 use crate::normalize::normalize;
 use crate::terms::Terms;
@@ -106,7 +106,7 @@ pub fn validate_review(
     for entry in &review.claims {
         if entry.claim >= claims.len() {
             issues.push(issue(
-                "unknown_review_claim",
+                issue_code::UNKNOWN_REVIEW_CLAIM,
                 Severity::Error,
                 format!(
                     "review entry references {} {} but only {} {} exist",
@@ -122,7 +122,7 @@ pub fn validate_review(
 
         if !reviewed.insert(entry.claim) {
             issues.push(issue(
-                "duplicate_review_claim",
+                issue_code::DUPLICATE_REVIEW_CLAIM,
                 Severity::Error,
                 format!("duplicate review entry for {} {}", terms.claim, entry.claim),
                 Some(entry.claim),
@@ -133,7 +133,7 @@ pub fn validate_review(
         let expected_claim_hash = sha256_bytes(claims[entry.claim].as_bytes());
         if entry.claim_sha256 != expected_claim_hash {
             issues.push(issue(
-                "stale_review_claim",
+                issue_code::STALE_REVIEW_CLAIM,
                 Severity::Error,
                 format!(
                     "review {}_sha256 is stale for {} {}: expected {expected_claim_hash}, found {}",
@@ -147,7 +147,7 @@ pub fn validate_review(
             let expected_evidence_hash = evidence_sha256(ev_entry);
             if entry.evidence_sha256 != expected_evidence_hash {
                 issues.push(issue(
-                    "stale_review_evidence",
+                    issue_code::STALE_REVIEW_EVIDENCE,
                     Severity::Error,
                     format!(
                         "review evidence_sha256 is stale for {} {}: expected {expected_evidence_hash}, found {}",
@@ -163,7 +163,7 @@ pub fn validate_review(
         for index in 0..claims.len() {
             if !reviewed.contains(&index) {
                 issues.push(issue(
-                    "missing_review",
+                    issue_code::MISSING_REVIEW,
                     Severity::Error,
                     format!("{} {index} has no review entry", terms.claim),
                     Some(index),
@@ -174,7 +174,7 @@ pub fn validate_review(
         for entry in &review.claims {
             if entry.claim < claims.len() && entry.verdict != Verdict::Supported {
                 issues.push(issue(
-                    "unsupported_verdict",
+                    issue_code::UNSUPPORTED_VERDICT,
                     Severity::Error,
                     format!(
                         "{} {} verdict is {:?}, not supported",
@@ -190,15 +190,16 @@ pub fn validate_review(
 }
 
 fn issue(
-    code: impl Into<String>,
+    code: IssueCode,
     severity: Severity,
     message: impl Into<String>,
     claim: Option<usize>,
 ) -> EvidenceIssue {
     EvidenceIssue {
-        code: code.into(),
+        code: code.as_str().to_owned(),
         severity,
         message: message.into(),
+        source: None,
         claim,
         locator: None,
     }

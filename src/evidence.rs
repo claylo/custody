@@ -114,9 +114,96 @@ pub struct EvidenceIssue {
     pub severity: Severity,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub claim: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub locator: Option<usize>,
+}
+
+/// One stable issue kind and its CLI schema metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct IssueCode {
+    kind: &'static str,
+    exit_code: Option<u8>,
+    description: &'static str,
+}
+
+impl IssueCode {
+    pub(crate) const fn as_str(self) -> &'static str {
+        self.kind
+    }
+
+    pub(crate) const fn exit_code(self) -> Option<u8> {
+        self.exit_code
+    }
+
+    pub(crate) const fn description(self) -> &'static str {
+        self.description
+    }
+}
+
+macro_rules! define_issue_codes {
+    ($($name:ident => ($kind:literal, $exit_code:expr, $description:literal)),+ $(,)?) => {
+        pub(crate) mod issue_code {
+            use super::IssueCode;
+
+            $(pub const $name: IssueCode = IssueCode {
+                kind: $kind,
+                exit_code: $exit_code,
+                description: $description,
+            };)+
+
+            pub const ALL: &[IssueCode] = &[$($name),+];
+        }
+    };
+}
+
+define_issue_codes! {
+    MISSING_EVIDENCE => ("missing_evidence", Some(1), "Summary has no evidence section"),
+    STALE_HASH => ("stale_hash", Some(1), "Claim or source SHA-256 does not match current content"),
+    MARKDOWN_MISSING => ("markdown_missing", Some(1), "Exact text not found in the recorded Markdown unit"),
+    MARKDOWN_AMBIGUOUS => ("markdown_ambiguous", Some(1), "Exact text occurs more than once in the Markdown unit"),
+    PDF_MISSING => ("pdf_missing", Some(1), "Exact text not found on the PDF page"),
+    PDF_AMBIGUOUS => ("pdf_ambiguous", Some(1), "Exact text occurs more than once on the PDF page"),
+    UNKNOWN_SOURCE => ("unknown_source", Some(1), "Locator references an undeclared source"),
+    UNUSED_SOURCE => ("unused_source", Some(1), "Declared source is not cited by any locator"),
+    UNKNOWN_SOURCE_TEMPLATE => ("unknown_source_template", Some(1), "No configured templates for a declared source name"),
+    UNCOVERED_TOKEN => ("uncovered_token", Some(1), "A required claim token appears in no locator"),
+    STALE_SECTION => ("stale_section", Some(1), "Recorded section path disagrees with the source"),
+    OCR_DISABLED => ("ocr_disabled", Some(1), "Locator uses OCR but OCR is disabled in configuration"),
+    STALE_REVIEW_CLAIM => ("stale_review_claim", Some(1), "Review claim_sha256 does not match current claim text"),
+    STALE_REVIEW_EVIDENCE => ("stale_review_evidence", Some(1), "Review evidence_sha256 does not match current locator set"),
+    UNKNOWN_REVIEW_CLAIM => ("unknown_review_claim", Some(1), "Review entry references a nonexistent claim"),
+    DUPLICATE_REVIEW_CLAIM => ("duplicate_review_claim", Some(1), "Two review entries for one claim"),
+    MISSING_REVIEW => ("missing_review", Some(1), "Claim has no review entry (under --require-review)"),
+    UNSUPPORTED_VERDICT => ("unsupported_verdict", Some(1), "Verdict is not 'supported' (under --require-review)"),
+    DUPLICATE_ENTRY => ("duplicate_entry", Some(1), "Multiple evidence entries for one claim"),
+    MISSING_EVIDENCE_ENTRY => ("missing_evidence_entry", Some(1), "Claim has no evidence entry"),
+    ENTRY_OUT_OF_RANGE => ("entry_out_of_range", Some(1), "Evidence entry references a nonexistent claim"),
+    EMPTY_SOURCES => ("empty_sources", Some(1), "Evidence declares no sources"),
+    EMPTY_SOURCE => ("empty_source", Some(1), "Source record is missing markdown or pdf path"),
+    EMPTY_LOCATORS => ("empty_locators", Some(1), "Evidence entry has no locators"),
+    EMPTY_EXACT => ("empty_exact", Some(1), "Locator exact text is empty after normalization"),
+    UNNORMALIZED_EXACT => ("unnormalized_exact", Some(1), "Locator exact text is not in normalized form"),
+    INVALID_SOURCE_NAME => ("invalid_source_name", Some(1), "Source name is not a valid path component"),
+    INVALID_SHA256 => ("invalid_sha256", Some(1), "SHA-256 value is not 64 lowercase hex characters"),
+    INVALID_ID => ("invalid_id", Some(1), "Summary ID is not safe for template expansion"),
+    INVALID_MARKDOWN_LINE => ("invalid_markdown_line", Some(1), "Markdown line coordinate is invalid"),
+    INVALID_MARKDOWN_COLUMN => ("invalid_markdown_column", Some(1), "Markdown column coordinate is invalid"),
+    INVALID_PDF_PAGE => ("invalid_pdf_page", Some(1), "PDF page number is invalid"),
+    MARKDOWN_UNIT_MISSING => ("markdown_unit_missing", Some(1), "No semantic unit at the recorded Markdown coordinates"),
+    MARKDOWN_READ_FAILED => ("markdown_read_failed", Some(1), "Markdown source file could not be read"),
+    PDF_EXTRACTION_FAILED => ("pdf_extraction_failed", Some(1), "PDF text extraction failed"),
+    EMPTY_MARKDOWN_CANDIDATES => ("empty_markdown_candidates", Some(1), "No markdown template candidates for a source"),
+    WEAK_SECTION_ONLY => ("weak_section_only", None, "Every locator sits under a weak section heading (warning)"),
+    SOURCE_HASH_MISMATCH => ("source_hash_mismatch", Some(1), "Source file SHA-256 disagrees with recorded hash"),
+    SOURCE_MISMATCH => ("source_mismatch", Some(1), "Recorded source path does not match expected path"),
+    SOURCE_READ_FAILED => ("source_read_failed", Some(1), "Source file could not be read for hashing"),
+    SOURCE_OUTSIDE_REPO => ("source_outside_repo", Some(1), "Resolved source path escapes the corpus root"),
+    SOURCE_UNRESOLVABLE => ("source_unresolvable", Some(1), "Source path cannot be resolved to a real path"),
+    SUMMARY_PARSE_FAILED => ("summary_parse_failed", Some(1), "Summary document could not be read or parsed"),
+    ID_MISMATCH => ("id_mismatch", Some(1), "Summary id does not match the ID resolved from its filename"),
 }
 
 /// Whether a source name is a safe single path component.
@@ -194,7 +281,7 @@ impl SummaryDocument {
     pub fn validate_evidence_structure(&self, terms: &Terms) -> Vec<EvidenceIssue> {
         let Some(evidence) = self.evidence.as_ref() else {
             return vec![issue(
-                "missing_evidence",
+                issue_code::MISSING_EVIDENCE,
                 Severity::Error,
                 "summary is missing evidence section",
                 None,
@@ -205,7 +292,7 @@ impl SummaryDocument {
 
         if evidence.sources.is_empty() {
             issues.push(issue(
-                "empty_sources",
+                issue_code::EMPTY_SOURCES,
                 Severity::Error,
                 "evidence declares no sources",
                 None,
@@ -215,7 +302,7 @@ impl SummaryDocument {
         for (name, pair) in &evidence.sources {
             if !validate_source_name(name) {
                 issues.push(issue(
-                    "invalid_source_name",
+                    issue_code::INVALID_SOURCE_NAME,
                     Severity::Error,
                     format!("source name {name:?} is not a valid path component"),
                     None,
@@ -231,7 +318,7 @@ impl SummaryDocument {
         for entry in &evidence.claims {
             if entry.claim >= self.claims.len() {
                 issues.push(issue(
-                    "entry_out_of_range",
+                    issue_code::ENTRY_OUT_OF_RANGE,
                     Severity::Error,
                     format!(
                         "evidence {} {} is out of range for {} {}",
@@ -248,7 +335,7 @@ impl SummaryDocument {
                 let actual = self.claim_hash(entry.claim).expect("index was checked");
                 if entry.claim_sha256 != actual {
                     issues.push(issue(
-                        "stale_hash",
+                        issue_code::STALE_HASH,
                         Severity::Error,
                         format!(
                             "{} {} hash is stale: expected {actual}, found {}",
@@ -261,7 +348,7 @@ impl SummaryDocument {
             }
             if entry.locators.is_empty() {
                 issues.push(issue(
-                    "empty_locators",
+                    issue_code::EMPTY_LOCATORS,
                     Severity::Error,
                     format!("{} {} has no locators", terms.claim, entry.claim),
                     Some(entry.claim),
@@ -280,7 +367,7 @@ impl SummaryDocument {
                     referenced.insert(locator.source.as_str());
                 } else {
                     issues.push(issue(
-                        "unknown_source",
+                        issue_code::UNKNOWN_SOURCE,
                         Severity::Error,
                         format!("locator references undeclared source {:?}", locator.source),
                         Some(entry.claim),
@@ -294,7 +381,7 @@ impl SummaryDocument {
         for (index, count) in counts.into_iter().enumerate() {
             match count {
                 0 => issues.push(issue(
-                    "missing_evidence_entry",
+                    issue_code::MISSING_EVIDENCE_ENTRY,
                     Severity::Error,
                     format!("missing evidence for {} {index}", terms.claim),
                     Some(index),
@@ -302,7 +389,7 @@ impl SummaryDocument {
                 )),
                 1 => {}
                 _ => issues.push(issue(
-                    "duplicate_entry",
+                    issue_code::DUPLICATE_ENTRY,
                     Severity::Error,
                     format!("{} {index} has {count} evidence entries", terms.claim),
                     Some(index),
@@ -314,7 +401,7 @@ impl SummaryDocument {
         for name in evidence.sources.keys() {
             if !referenced.contains(name.as_str()) {
                 issues.push(issue(
-                    "unused_source",
+                    issue_code::UNUSED_SOURCE,
                     Severity::Error,
                     format!("source {name:?} is declared but no locator references it"),
                     None,
@@ -330,7 +417,7 @@ impl SummaryDocument {
 fn validate_source(label: &str, source: &SourceRecord, issues: &mut Vec<EvidenceIssue>) {
     if source.source.is_empty() {
         issues.push(issue(
-            "empty_source",
+            issue_code::EMPTY_SOURCE,
             Severity::Error,
             format!("{label} source path is empty"),
             None,
@@ -347,7 +434,7 @@ fn validate_hash(label: &str, hash: &str, claim: Option<usize>, issues: &mut Vec
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
     {
         issues.push(issue(
-            "invalid_sha256",
+            issue_code::INVALID_SHA256,
             Severity::Error,
             format!("{label} must be 64 lowercase hexadecimal characters"),
             claim,
@@ -365,7 +452,7 @@ fn validate_locator(
     let normalized = normalize(&locator.exact);
     if normalized.is_empty() {
         issues.push(issue(
-            "empty_exact",
+            issue_code::EMPTY_EXACT,
             Severity::Error,
             "locator exact text is empty after normalization",
             Some(claim),
@@ -373,7 +460,7 @@ fn validate_locator(
         ));
     } else if normalized != locator.exact {
         issues.push(issue(
-            "unnormalized_exact",
+            issue_code::UNNORMALIZED_EXACT,
             Severity::Error,
             format!("locator exact text must be normalized as {normalized:?}"),
             Some(claim),
@@ -382,7 +469,7 @@ fn validate_locator(
     }
     if locator.markdown.line == 0 {
         issues.push(issue(
-            "invalid_markdown_line",
+            issue_code::INVALID_MARKDOWN_LINE,
             Severity::Error,
             "Markdown line must be one-based",
             Some(claim),
@@ -391,7 +478,7 @@ fn validate_locator(
     }
     if locator.markdown.column == 0 {
         issues.push(issue(
-            "invalid_markdown_column",
+            issue_code::INVALID_MARKDOWN_COLUMN,
             Severity::Error,
             "Markdown column must be one-based",
             Some(claim),
@@ -400,7 +487,7 @@ fn validate_locator(
     }
     if locator.pdf.page == 0 {
         issues.push(issue(
-            "invalid_pdf_page",
+            issue_code::INVALID_PDF_PAGE,
             Severity::Error,
             "PDF page must be one-based",
             Some(claim),
@@ -410,16 +497,17 @@ fn validate_locator(
 }
 
 fn issue(
-    code: impl Into<String>,
+    code: IssueCode,
     severity: Severity,
     message: impl Into<String>,
     claim: Option<usize>,
     locator: Option<usize>,
 ) -> EvidenceIssue {
     EvidenceIssue {
-        code: code.into(),
+        code: code.as_str().to_owned(),
         severity,
         message: message.into(),
+        source: None,
         claim,
         locator,
     }

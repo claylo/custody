@@ -353,10 +353,12 @@ your vocabulary; `locate` emits it too.
 Two things stay fixed regardless. **Error codes** are vocabulary-free
 (`missing_evidence_entry`, `stale_hash`, `entry_out_of_range`,
 `duplicate_entry`), so a script consuming `--format json` is portable across
-corpora. `receipts schema` lists every declared error code. And **`--claim N`
-keeps its name**, because it takes an index rather than the word: the command is
-identical whichever vocabulary a document uses, and a configurable flag would
-fragment every example and shell script.
+corpora. Source-validation issues also keep stable `source_*` codes and carry
+the configured source name in a separate `source` field. `receipts schema`
+lists every declared error code from the same registry used to construct
+runtime issues. And **`--claim N` keeps its name**, because it takes an index
+rather than the word: the command is identical whichever vocabulary a document
+uses, and a configurable flag would fragment every example and shell script.
 
 ## Cache
 

@@ -150,12 +150,12 @@ fn source_hash_mismatch_is_reported() {
     default_pair(&mut summary).pdf.sha256 = "0".repeat(64);
     let report = validate_document(&fixture.corpus, &summary, &FakePdf::default(), false);
 
-    assert!(
-        report
-            .issues
-            .iter()
-            .any(|issue| issue.code == "default/pdf_hash_mismatch")
-    );
+    let issue = report
+        .issues
+        .iter()
+        .find(|issue| issue.code == "source_hash_mismatch")
+        .expect("source hash mismatch is reported with a stable code");
+    assert_eq!(issue.source.as_deref(), Some("default"));
 }
 
 #[test]
@@ -254,14 +254,12 @@ fn rejects_canonical_source_symlinks_that_escape_the_corpus() {
         false,
     );
 
-    assert!(
-        report
-            .issues
-            .iter()
-            .any(|issue| issue.code == "default/markdown_source_outside_repo"),
-        "{:?}",
-        report.issues
-    );
+    let issue = report
+        .issues
+        .iter()
+        .find(|issue| issue.code == "source_outside_repo")
+        .unwrap_or_else(|| panic!("stable source escape issue missing: {:?}", report.issues));
+    assert_eq!(issue.source.as_deref(), Some("default"));
 }
 
 #[test]

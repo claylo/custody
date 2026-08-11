@@ -14,8 +14,8 @@ use serde::Serialize;
 use crate::{
     corpus::Corpus,
     evidence::{
-        ClaimEvidence, DEFAULT_SOURCE, Locator, MarkdownLocator, PdfBackend, PdfLocator, Severity,
-        SourceRecord, parse_summary,
+        ClaimEvidence, DEFAULT_SOURCE, IssueCode, Locator, MarkdownLocator, PdfBackend, PdfLocator,
+        Severity, SourceRecord, issue_code, parse_summary,
     },
     hash::sha256_file,
     markdown::{exact_count, parse_units},
@@ -262,7 +262,7 @@ const fn cache_read_policy(cache_is_corpus_local: bool, trust_cache: bool) -> Ca
 }
 
 fn schema_metadata() -> SchemaMetadata {
-    SchemaMetadata::new()
+    let mut metadata = SchemaMetadata::new()
         .version(env!("CARGO_PKG_VERSION").to_owned())
         .command(
             "doctor",
@@ -389,259 +389,20 @@ fn schema_metadata() -> SchemaMetadata {
                     "--candidates",
                     "5",
                 ])),
-        )
-        .error(
-            ErrorMetadata::new("missing_evidence")
-                .exit_code(1)
+        );
+
+    for &code in issue_code::ALL {
+        let Some(exit_code) = code.exit_code() else {
+            continue;
+        };
+        metadata = metadata.error(
+            ErrorMetadata::new(code.as_str())
+                .exit_code(exit_code)
                 .retryable(false)
-                .description("Summary has no evidence section"),
-        )
-        .error(
-            ErrorMetadata::new("stale_hash")
-                .exit_code(1)
-                .retryable(false)
-                .description("Claim or source SHA-256 does not match current content"),
-        )
-        .error(
-            ErrorMetadata::new("markdown_missing")
-                .exit_code(1)
-                .retryable(false)
-                .description("Exact text not found in the recorded Markdown unit"),
-        )
-        .error(
-            ErrorMetadata::new("markdown_ambiguous")
-                .exit_code(1)
-                .retryable(false)
-                .description("Exact text occurs more than once in the Markdown unit"),
-        )
-        .error(
-            ErrorMetadata::new("pdf_missing")
-                .exit_code(1)
-                .retryable(false)
-                .description("Exact text not found on the PDF page"),
-        )
-        .error(
-            ErrorMetadata::new("pdf_ambiguous")
-                .exit_code(1)
-                .retryable(false)
-                .description("Exact text occurs more than once on the PDF page"),
-        )
-        .error(
-            ErrorMetadata::new("unknown_source")
-                .exit_code(1)
-                .retryable(false)
-                .description("Locator references an undeclared source"),
-        )
-        .error(
-            ErrorMetadata::new("unused_source")
-                .exit_code(1)
-                .retryable(false)
-                .description("Declared source is not cited by any locator"),
-        )
-        .error(
-            ErrorMetadata::new("unknown_source_template")
-                .exit_code(1)
-                .retryable(false)
-                .description("No configured templates for a declared source name"),
-        )
-        .error(
-            ErrorMetadata::new("uncovered_token")
-                .exit_code(1)
-                .retryable(false)
-                .description("A required claim token appears in no locator"),
-        )
-        .error(
-            ErrorMetadata::new("stale_section")
-                .exit_code(1)
-                .retryable(false)
-                .description("Recorded section path disagrees with the source"),
-        )
-        .error(
-            ErrorMetadata::new("ocr_disabled")
-                .exit_code(1)
-                .retryable(false)
-                .description("Locator uses OCR but OCR is disabled in configuration"),
-        )
-        .error(
-            ErrorMetadata::new("stale_review_claim")
-                .exit_code(1)
-                .retryable(false)
-                .description("Review claim_sha256 does not match current claim text"),
-        )
-        .error(
-            ErrorMetadata::new("stale_review_evidence")
-                .exit_code(1)
-                .retryable(false)
-                .description("Review evidence_sha256 does not match current locator set"),
-        )
-        .error(
-            ErrorMetadata::new("unknown_review_claim")
-                .exit_code(1)
-                .retryable(false)
-                .description("Review entry references a nonexistent claim"),
-        )
-        .error(
-            ErrorMetadata::new("duplicate_review_claim")
-                .exit_code(1)
-                .retryable(false)
-                .description("Two review entries for one claim"),
-        )
-        .error(
-            ErrorMetadata::new("missing_review")
-                .exit_code(1)
-                .retryable(false)
-                .description("Claim has no review entry (under --require-review)"),
-        )
-        .error(
-            ErrorMetadata::new("unsupported_verdict")
-                .exit_code(1)
-                .retryable(false)
-                .description("Verdict is not 'supported' (under --require-review)"),
-        )
-        .error(
-            ErrorMetadata::new("duplicate_entry")
-                .exit_code(1)
-                .retryable(false)
-                .description("Multiple evidence entries for one claim"),
-        )
-        .error(
-            ErrorMetadata::new("missing_evidence_entry")
-                .exit_code(1)
-                .retryable(false)
-                .description("Claim has no evidence entry"),
-        )
-        .error(
-            ErrorMetadata::new("entry_out_of_range")
-                .exit_code(1)
-                .retryable(false)
-                .description("Evidence entry references a nonexistent claim"),
-        )
-        .error(
-            ErrorMetadata::new("empty_sources")
-                .exit_code(1)
-                .retryable(false)
-                .description("Evidence declares no sources"),
-        )
-        .error(
-            ErrorMetadata::new("empty_source")
-                .exit_code(1)
-                .retryable(false)
-                .description("Source record is missing markdown or pdf path"),
-        )
-        .error(
-            ErrorMetadata::new("empty_locators")
-                .exit_code(1)
-                .retryable(false)
-                .description("Evidence entry has no locators"),
-        )
-        .error(
-            ErrorMetadata::new("empty_exact")
-                .exit_code(1)
-                .retryable(false)
-                .description("Locator exact text is empty after normalization"),
-        )
-        .error(
-            ErrorMetadata::new("unnormalized_exact")
-                .exit_code(1)
-                .retryable(false)
-                .description("Locator exact text is not in normalized form"),
-        )
-        .error(
-            ErrorMetadata::new("invalid_source_name")
-                .exit_code(1)
-                .retryable(false)
-                .description("Source name is not a valid path component"),
-        )
-        .error(
-            ErrorMetadata::new("invalid_sha256")
-                .exit_code(1)
-                .retryable(false)
-                .description("SHA-256 value is not 64 lowercase hex characters"),
-        )
-        .error(
-            ErrorMetadata::new("invalid_id")
-                .exit_code(1)
-                .retryable(false)
-                .description("Summary ID is not safe for template expansion"),
-        )
-        .error(
-            ErrorMetadata::new("invalid_markdown_line")
-                .exit_code(1)
-                .retryable(false)
-                .description("Markdown line coordinate is invalid"),
-        )
-        .error(
-            ErrorMetadata::new("invalid_markdown_column")
-                .exit_code(1)
-                .retryable(false)
-                .description("Markdown column coordinate is invalid"),
-        )
-        .error(
-            ErrorMetadata::new("invalid_pdf_page")
-                .exit_code(1)
-                .retryable(false)
-                .description("PDF page number is invalid"),
-        )
-        .error(
-            ErrorMetadata::new("markdown_unit_missing")
-                .exit_code(1)
-                .retryable(false)
-                .description("No semantic unit at the recorded Markdown coordinates"),
-        )
-        .error(
-            ErrorMetadata::new("markdown_read_failed")
-                .exit_code(1)
-                .retryable(false)
-                .description("Markdown source file could not be read"),
-        )
-        .error(
-            ErrorMetadata::new("pdf_extraction_failed")
-                .exit_code(1)
-                .retryable(false)
-                .description("PDF text extraction failed"),
-        )
-        .error(
-            ErrorMetadata::new("empty_markdown_candidates")
-                .exit_code(1)
-                .retryable(false)
-                .description("No markdown template candidates for a source"),
-        )
-        .error(
-            ErrorMetadata::new("weak_section_only")
-                .exit_code(0)
-                .retryable(false)
-                .description("Every locator sits under a weak section heading (warning)"),
-        )
-        .error(
-            ErrorMetadata::new("source_hash_mismatch")
-                .exit_code(1)
-                .retryable(false)
-                .description("Source file SHA-256 disagrees with recorded hash"),
-        )
-        .error(
-            ErrorMetadata::new("source_mismatch")
-                .exit_code(1)
-                .retryable(false)
-                .description("Recorded source path does not match expected path"),
-        )
-        .error(
-            ErrorMetadata::new("source_read_failed")
-                .exit_code(1)
-                .retryable(false)
-                .description("Source file could not be read for hashing"),
-        )
-        .error(
-            ErrorMetadata::new("source_outside_repo")
-                .exit_code(1)
-                .retryable(false)
-                .description("Resolved source path escapes the corpus root"),
-        )
-        .error(
-            ErrorMetadata::new("source_unresolvable")
-                .exit_code(1)
-                .retryable(false)
-                .description("Source path cannot be resolved to a real path"),
-        )
+                .description(code.description()),
+        );
+    }
+    metadata
 }
 
 fn doctor(corpus: &Corpus, tools: &PdfTools, json: bool, quiet: bool) -> Result<()> {
@@ -940,9 +701,11 @@ fn check(
             Ok(summary) => summary,
             Err(error) => {
                 report.invalid += 1;
-                report
-                    .summaries
-                    .push(error_report(id, "summary_parse_failed", error.to_string()));
+                report.summaries.push(error_report(
+                    id,
+                    issue_code::SUMMARY_PARSE_FAILED,
+                    error.to_string(),
+                ));
                 continue;
             }
         };
@@ -950,7 +713,7 @@ fn check(
             report.invalid += 1;
             report.summaries.push(error_report(
                 id,
-                "id_mismatch",
+                issue_code::ID_MISMATCH,
                 format!("summary ID {:?} does not match filename", summary.id),
             ));
             continue;
@@ -1008,13 +771,10 @@ fn audit(
                 report.summaries.push(AuditSummary {
                     id,
                     status: AuditStatus::Invalid,
-                    issues: vec![crate::evidence::EvidenceIssue {
-                        code: "summary_parse_failed".to_owned(),
-                        severity: Severity::Error,
-                        message: error.to_string(),
-                        claim: None,
-                        locator: None,
-                    }],
+                    issues: vec![error_issue(
+                        issue_code::SUMMARY_PARSE_FAILED,
+                        error.to_string(),
+                    )],
                 });
                 continue;
             }
@@ -1024,13 +784,10 @@ fn audit(
             report.summaries.push(AuditSummary {
                 id,
                 status: AuditStatus::Invalid,
-                issues: vec![crate::evidence::EvidenceIssue {
-                    code: "id_mismatch".to_owned(),
-                    severity: Severity::Error,
-                    message: format!("summary ID {:?} does not match filename", summary.id),
-                    claim: None,
-                    locator: None,
-                }],
+                issues: vec![error_issue(
+                    issue_code::ID_MISMATCH,
+                    format!("summary ID {:?} does not match filename", summary.id),
+                )],
             });
             continue;
         }
@@ -1096,7 +853,11 @@ fn propose_cmd(
             Ok(summary) => summary,
             Err(error) => {
                 failed += 1;
-                let report = error_report(id.clone(), "summary_parse_failed", error.to_string());
+                let report = error_report(
+                    id.clone(),
+                    issue_code::SUMMARY_PARSE_FAILED,
+                    error.to_string(),
+                );
                 if !json {
                     print_issues(std::slice::from_ref(&report));
                 }
@@ -1108,7 +869,7 @@ fn propose_cmd(
             failed += 1;
             let report = error_report(
                 id.clone(),
-                "id_mismatch",
+                issue_code::ID_MISMATCH,
                 format!("summary ID {:?} does not match filename", summary.id),
             );
             if !json {
@@ -1374,20 +1135,21 @@ fn print_audit_issues(summaries: &[AuditSummary]) {
     }
 }
 
-fn error_report(
-    id: String,
-    code: impl Into<String>,
-    message: impl Into<String>,
-) -> ValidationReport {
+fn error_report(id: String, code: IssueCode, message: impl Into<String>) -> ValidationReport {
     ValidationReport {
         id,
-        issues: vec![crate::evidence::EvidenceIssue {
-            code: code.into(),
-            severity: Severity::Error,
-            message: message.into(),
-            claim: None,
-            locator: None,
-        }],
+        issues: vec![error_issue(code, message)],
+    }
+}
+
+fn error_issue(code: IssueCode, message: impl Into<String>) -> crate::evidence::EvidenceIssue {
+    crate::evidence::EvidenceIssue {
+        code: code.as_str().to_owned(),
+        severity: Severity::Error,
+        message: message.into(),
+        source: None,
+        claim: None,
+        locator: None,
     }
 }
 

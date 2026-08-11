@@ -41,6 +41,38 @@ fn receipts_json(corpus: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
+fn schema_declares_runtime_issue_codes() {
+    let output = Command::new(env!("CARGO_BIN_EXE_receipts"))
+        .arg("schema")
+        .output()
+        .expect("receipts schema executes");
+    assert!(output.status.success(), "{}", stderr(&output));
+
+    let schema: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("schema emits JSON");
+    let errors = schema["errors"].as_array().unwrap();
+    for expected in [
+        "source_hash_mismatch",
+        "source_mismatch",
+        "source_read_failed",
+        "source_outside_repo",
+        "source_unresolvable",
+        "summary_parse_failed",
+        "id_mismatch",
+    ] {
+        assert!(
+            errors.iter().any(|error| error["kind"] == expected),
+            "schema does not declare {expected}"
+        );
+    }
+    assert!(errors.iter().all(|error| {
+        error["exit_code"]
+            .as_u64()
+            .is_some_and(|code| (1..=255).contains(&code))
+    }));
+}
+
+#[test]
 fn targeted_check_fails_when_evidence_is_missing() {
     let corpus = fixture_corpus();
     let output = receipts(corpus.path(), &["check", "missing-evidence"]);
