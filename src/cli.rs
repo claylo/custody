@@ -16,7 +16,7 @@ use crate::{
     corpus::Corpus,
     evidence::{
         ClaimEvidence, DEFAULT_SOURCE, EvidenceIssue, IssueCode, Locator, MarkdownLocator,
-        PdfBackend, PdfLocator, Severity, SourceRecord, issue_code, parse_summary,
+        PdfBackend, PdfLocator, Severity, SourceRecord, issue, issue_code, parse_summary,
     },
     hash::sha256_file,
     markdown::{exact_count, parse_units},
@@ -701,16 +701,22 @@ fn evaluate_summary(
     let summary = match read_summary(corpus, id) {
         Ok(summary) => summary,
         Err(error) => {
-            return SummaryOutcome::ParseFailed(error_issue(
+            return SummaryOutcome::ParseFailed(issue(
                 issue_code::SUMMARY_PARSE_FAILED,
+                Severity::Error,
                 error.to_string(),
+                None,
+                None,
             ));
         }
     };
     if summary.id != id {
-        return SummaryOutcome::IdMismatch(error_issue(
+        return SummaryOutcome::IdMismatch(issue(
             issue_code::ID_MISMATCH,
+            Severity::Error,
             format!("summary ID {:?} does not match filename", summary.id),
+            None,
+            None,
         ));
     }
     if summary.evidence.is_none() && matches!(missing_evidence, MissingEvidencePolicy::Skip) {
@@ -1164,18 +1170,7 @@ fn print_issues<'a>(summaries: impl IntoIterator<Item = (&'a str, &'a [EvidenceI
 fn error_report(id: String, code: IssueCode, message: impl Into<String>) -> ValidationReport {
     ValidationReport {
         id,
-        issues: vec![error_issue(code, message)],
-    }
-}
-
-fn error_issue(code: IssueCode, message: impl Into<String>) -> crate::evidence::EvidenceIssue {
-    crate::evidence::EvidenceIssue {
-        code: code.as_str().to_owned(),
-        severity: Severity::Error,
-        message: message.into(),
-        source: None,
-        claim: None,
-        locator: None,
+        issues: vec![issue(code, Severity::Error, message, None, None)],
     }
 }
 

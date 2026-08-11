@@ -11,7 +11,7 @@ use crate::{
     corpus::Corpus,
     evidence::{
         ClaimEvidence, Evidence, EvidenceIssue, IssueCode, Locator, PdfBackend, Severity,
-        SummaryDocument, issue_code,
+        SummaryDocument, issue, issue_code,
     },
     hash::sha256_file,
     markdown::{MarkdownUnit, UnitIndex, exact_count, parse_units, resolve_unit},
@@ -637,23 +637,6 @@ fn validate_resolved_source(
     }
 }
 
-fn issue(
-    code: IssueCode,
-    severity: Severity,
-    message: impl Into<String>,
-    claim: Option<ClaimIndex>,
-    locator: Option<LocatorIndex>,
-) -> EvidenceIssue {
-    EvidenceIssue {
-        code: code.as_str().to_owned(),
-        severity,
-        message: message.into(),
-        source: None,
-        claim,
-        locator,
-    }
-}
-
 fn source_issue(
     code: IssueCode,
     severity: Severity,
@@ -662,12 +645,5 @@ fn source_issue(
     claim: Option<ClaimIndex>,
     locator: Option<LocatorIndex>,
 ) -> EvidenceIssue {
-    EvidenceIssue {
-        code: code.as_str().to_owned(),
-        severity,
-        message: message.into(),
-        source: Some(source.to_owned()),
-        claim,
-        locator,
-    }
+    issue(code, severity, message, claim, locator).source(source)
 }

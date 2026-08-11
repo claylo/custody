@@ -3,7 +3,7 @@ use std::{collections::BTreeSet, fmt};
 use serde::{Deserialize, Serialize};
 
 use crate::coordinate::ClaimIndex;
-use crate::evidence::{ClaimEvidence, Evidence, EvidenceIssue, IssueCode, Severity, issue_code};
+use crate::evidence::{ClaimEvidence, Evidence, EvidenceIssue, Severity, issue, issue_code};
 use crate::hash::sha256_bytes;
 use crate::normalize::normalize;
 use crate::terms::Terms;
@@ -136,6 +136,7 @@ pub fn validate_review(
                     terms.claims
                 ),
                 Some(entry.claim),
+                None,
             ));
             continue;
         }
@@ -146,6 +147,7 @@ pub fn validate_review(
                 Severity::Error,
                 format!("duplicate review entry for {} {}", terms.claim, entry.claim),
                 Some(entry.claim),
+                None,
             ));
             continue;
         }
@@ -160,6 +162,7 @@ pub fn validate_review(
                     terms.claim, terms.claim, entry.claim, entry.claim_sha256
                 ),
                 Some(entry.claim),
+                None,
             ));
         }
 
@@ -174,6 +177,7 @@ pub fn validate_review(
                         terms.claim, entry.claim, entry.evidence_sha256
                     ),
                     Some(entry.claim),
+                    None,
                 ));
             }
         }
@@ -188,6 +192,7 @@ pub fn validate_review(
                     Severity::Error,
                     format!("{} {index} has no review entry", terms.claim),
                     Some(index),
+                    None,
                 ));
             }
         }
@@ -202,26 +207,11 @@ pub fn validate_review(
                         terms.claim, entry.claim, entry.verdict
                     ),
                     Some(entry.claim),
+                    None,
                 ));
             }
         }
     }
 
     issues
-}
-
-fn issue(
-    code: IssueCode,
-    severity: Severity,
-    message: impl Into<String>,
-    claim: Option<ClaimIndex>,
-) -> EvidenceIssue {
-    EvidenceIssue {
-        code: code.as_str().to_owned(),
-        severity,
-        message: message.into(),
-        source: None,
-        claim,
-        locator: None,
-    }
 }

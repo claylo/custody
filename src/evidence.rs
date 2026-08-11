@@ -135,6 +135,13 @@ pub struct EvidenceIssue {
     pub locator: Option<LocatorIndex>,
 }
 
+impl EvidenceIssue {
+    pub(crate) fn source(mut self, source: impl Into<String>) -> Self {
+        self.source = Some(source.into());
+        self
+    }
+}
+
 /// One stable issue kind and its CLI schema metadata.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct IssueCode {
@@ -490,7 +497,7 @@ fn validate_locator(
     }
 }
 
-fn issue(
+pub(crate) fn issue(
     code: IssueCode,
     severity: Severity,
     message: impl Into<String>,
