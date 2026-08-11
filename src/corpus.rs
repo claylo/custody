@@ -1,6 +1,10 @@
 //! Corpus root and template-driven source resolution.
 
-use std::path::{Path, PathBuf};
+use std::{
+    ffi::OsString,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result, bail};
 
@@ -34,14 +38,7 @@ impl Corpus {
             config_file,
         } = discovered;
         let cache_root = match config.cache.root.as_deref() {
-            Some(value) => {
-                let candidate = PathBuf::from(value);
-                if candidate.is_absolute() {
-                    candidate
-                } else {
-                    root.join(candidate)
-                }
-            }
+            Some(value) => resolve_cache_root(&root, value)?,
             None => config::platform_cache_root()?,
         };
         Ok(Self {
@@ -165,6 +162,59 @@ impl Corpus {
             .get(source)
             .with_context(|| format!("corpus declares no templates for source {source:?}"))
     }
+}
+
+fn resolve_cache_root(root: &Path, declared: &str) -> Result<PathBuf> {
+    config::validate_cache_root(declared)?;
+    let candidate = root.join(declared);
+    let mut existing = candidate.as_path();
+    let mut missing = Vec::<OsString>::new();
+
+    loop {
+        match fs::symlink_metadata(existing) {
+            Ok(_) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let name = existing.file_name().with_context(|| {
+                    format!(
+                        "cache.root has no existing ancestor: {}",
+                        candidate.display()
+                    )
+                })?;
+                missing.push(name.to_os_string());
+                existing = existing.parent().with_context(|| {
+                    format!(
+                        "cache.root has no existing ancestor: {}",
+                        candidate.display()
+                    )
+                })?;
+            }
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "failed to inspect cache.root ancestor {}",
+                        existing.display()
+                    )
+                });
+            }
+        }
+    }
+
+    let mut resolved = existing.canonicalize().with_context(|| {
+        format!(
+            "failed to resolve cache.root ancestor {}",
+            existing.display()
+        )
+    })?;
+    if !resolved.starts_with(root) {
+        bail!(
+            "cache.root resolves outside the corpus root: {}",
+            resolved.display()
+        );
+    }
+    for component in missing.iter().rev() {
+        resolved.push(component);
+    }
+    Ok(resolved)
 }
 
 fn render(template: &str, id: &str) -> String {

@@ -75,10 +75,12 @@ Every template is relative to the corpus root and must contain `{id}`. Absolute
 paths and `..` segments are rejected, so a config file cannot direct reads
 outside the corpus.
 
-A relative `cache.root` is write-only by default because corpus content is not
-trusted evidence. Pass `--trust-cache` to reuse entries from that directory only
-when you trust the checkout; the opt-in is deliberately a CLI flag, not project
-configuration.
+`cache.root` must be relative, may not contain `..`, and must resolve within the
+corpus root; existing symlinks are checked before the directory is created. The
+resulting corpus-local cache is write-only by default because corpus content is
+not trusted evidence. Pass `--trust-cache` to reuse entries from that directory
+only when you trust the checkout; the opt-in is deliberately a CLI flag, not
+project configuration.
 
 Discovery walks up from the working directory, checking `.config/receipts.yaml`,
 `.receipts.yaml`, then `receipts.yaml` in each ancestor, stopping at a `.git`

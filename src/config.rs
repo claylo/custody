@@ -4,7 +4,7 @@
 //! working directory. The directory containing that file is the corpus root.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 use librebar::camino::{Utf8Path, Utf8PathBuf};
@@ -73,8 +73,8 @@ impl Default for SourceTemplates {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct CacheConfig {
-    /// Cache root. `None` uses the platform cache directory. A relative path
-    /// resolves against the corpus root.
+    /// Cache root. `None` uses the platform cache directory. Configured paths
+    /// must be relative to and resolve within the corpus root.
     pub root: Option<String>,
 }
 
@@ -255,6 +255,9 @@ fn desugar_corpus_layout(value: &mut Value) -> Result<()> {
 
 /// Reject templates that could escape the corpus root.
 fn validate(config: &Config) -> Result<()> {
+    if let Some(root) = config.cache.root.as_deref() {
+        validate_cache_root(root)?;
+    }
     validate_template(&config.corpus.summaries)?;
     if config.corpus.sources.is_empty() {
         bail!("corpus.sources must declare at least one source");
@@ -281,6 +284,24 @@ fn validate(config: &Config) -> Result<()> {
         bail!("pdf.ocr.page_segmentation_mode must be 0–13");
     }
     config.terms.validate()?;
+    Ok(())
+}
+
+pub(crate) fn validate_cache_root(root: &str) -> Result<()> {
+    let path = Path::new(root);
+    if path.is_absolute()
+        || path
+            .components()
+            .any(|part| matches!(part, Component::Prefix(_)))
+    {
+        bail!("cache.root must be relative to the corpus root");
+    }
+    if path
+        .components()
+        .any(|part| matches!(part, Component::ParentDir))
+    {
+        bail!("cache.root must not contain ..");
+    }
     Ok(())
 }
 

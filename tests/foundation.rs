@@ -158,6 +158,47 @@ fn rejects_templates_that_escape_the_corpus() {
 }
 
 #[test]
+fn rejects_an_absolute_cache_root() {
+    let dir = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let declared = serde_json::to_string(outside.path().to_str().unwrap()).unwrap();
+    write_config(dir.path(), &format!("cache:\n  root: {declared}\n"));
+
+    let error = Corpus::discover_from(dir.path(), None).unwrap_err();
+
+    assert!(error.to_string().contains("cache.root must be relative"));
+}
+
+#[test]
+fn rejects_a_cache_root_with_parent_components() {
+    let dir = tempfile::tempdir().unwrap();
+    write_config(dir.path(), "cache:\n  root: \"../outside\"\n");
+
+    let error = Corpus::discover_from(dir.path(), None).unwrap_err();
+
+    assert!(error.to_string().contains("cache.root must not contain .."));
+}
+
+#[cfg(unix)]
+#[test]
+fn rejects_a_cache_symlink_that_resolves_outside_the_corpus() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    symlink(outside.path(), dir.path().join("cache-link")).unwrap();
+    write_config(dir.path(), "cache:\n  root: \"cache-link\"\n");
+
+    let error = Corpus::discover_from(dir.path(), None).unwrap_err();
+
+    assert!(
+        error
+            .to_string()
+            .contains("cache.root resolves outside the corpus root")
+    );
+}
+
+#[test]
 fn rejects_templates_without_an_id_placeholder() {
     let dir = tempfile::tempdir().unwrap();
     write_config(dir.path(), "corpus:\n  pdf: \"pdfs/fixed.pdf\"\n");
