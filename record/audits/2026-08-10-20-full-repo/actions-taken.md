@@ -2,12 +2,12 @@
 audit: 2026-08-10-20-full-repo
 last_updated: 2026-08-10
 status:
-  fixed: 12
+  fixed: 17
   mitigated: 0
   accepted: 0
   disputed: 0
   deferred: 0
-  open: 36
+  open: 31
 ---
 
 # Actions Taken: Full repository — Rust source (src/, tests/), dependencies, configuration (.config/, justfile, Cargo.toml, deny.toml), and documented behavior (README.md, receipts.yaml)
@@ -169,3 +169,42 @@ Unit coverage proves broken-pipe errors remain detectable after context is attac
 `propose` now records malformed summaries and filename/ID mismatches as per-summary failures and continues processing the remaining corpus. Aggregate JSON retains successful proposals beside structured `summary_parse_failed` and `id_mismatch` entries; human mode keeps proposals on stdout and names failures on stderr before returning a non-zero status.
 
 A mixed-corpus CLI regression covers a valid proposal, malformed YAML, and an ID mismatch in both output modes. The README documents the partial-result and final-exit behavior.
+
+---
+
+## 2026-08-10 — Encode vocabulary-rename fallibility
+
+**Disposition:** fixed
+**Addresses:** [vocabulary-rename-results-discarded-without-rationale](README.md#vocabulary-rename-results-discarded-without-rationale)
+**Commit:** 550dbbd968bde60bf6c94c603a4e34521a70d16a
+**Author:** Codex
+
+Split vocabulary renaming into a fallible strict input path and an infallible localization path, so output code no longer discards `Result` values whose safety depended on a distant boolean branch. Canonicalization retains conflict detection while localization exposes no fallible result to ignore.
+
+SHA-256 hex encoding now writes high and low nibbles directly into the output string instead of discarding the formally infallible result of `write!`. Existing vocabulary and hashing regressions pass unchanged, confirming the refactor preserves behavior.
+
+---
+
+## 2026-08-10 — Unify runtime issue codes and CLI schema metadata
+
+**Disposition:** fixed
+**Addresses:** [schema-declares-source-error-codes-the-code-never-emits](README.md#schema-declares-source-error-codes-the-code-never-emits), [runtime-error-codes-absent-from-cli-spec](README.md#runtime-error-codes-absent-from-cli-spec), [error-code-registry-is-hand-maintained](README.md#error-code-registry-is-hand-maintained)
+**Commit:** 62513107404616cab769ae7c4eb86b314acb49d8
+**Author:** Codex
+
+Moved every runtime issue kind, exit classification, and description into one typed registry used by evidence, validation, review, batch-error construction, and CLI schema generation. New issue construction paths must select a registry value, eliminating unrelated string literals on the emit and declaration sides. `summary_parse_failed` and `id_mismatch` are now declared automatically, and warning-only `weak_section_only` is omitted from error metadata instead of making `receipts schema` fail with an invalid zero exit code.
+
+Source-integrity issues now emit the declared stable `source_*` codes and carry the configured source name in the structured `source` field. Regression coverage proves source hash and containment failures retain their source identity, the live schema command succeeds, the previously divergent codes are declared, and every declared error has a valid non-zero exit code.
+
+---
+
+## 2026-08-10 — Stabilize proposal JSON output
+
+**Disposition:** fixed
+**Addresses:** [propose-json-shape-varies-by-summary-count](README.md#propose-json-shape-varies-by-summary-count)
+**Commit:** fa85d1947fbabdaa185216ed4814253b57b3819b
+**Author:** Codex
+
+`propose --format json` now always emits a `{"summaries": [...]}` envelope, removing the count-dependent single-summary object. The CLI Spec declares that same top-level field, and the README documents the unconditional contract.
+
+Integration coverage pins the exact top-level key set for empty, one-summary, and two-summary corpora while retaining the mixed-success batch behavior added in the preceding remediation.
