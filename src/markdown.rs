@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{collections::HashMap, fmt};
 
 use anyhow::{Result, bail};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
@@ -10,7 +10,7 @@ use crate::{
 };
 
 /// Semantic Markdown boundaries accepted by evidence locators.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UnitKind {
     Heading,
@@ -51,6 +51,33 @@ pub struct MarkdownUnit {
     pub column: Column,
     /// Texts of the headings this unit sits under, outermost first.
     pub section: Vec<String>,
+}
+
+/// Constant-time lookup from a Markdown locator coordinate to its unit.
+#[derive(Debug)]
+pub struct UnitIndex {
+    entries: HashMap<(UnitKind, Line, Column), IndexedUnit>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum IndexedUnit {
+    Unique(usize),
+    Ambiguous,
+}
+
+impl UnitIndex {
+    /// Build an index while retaining duplicate-coordinate ambiguity.
+    #[must_use]
+    pub fn new(units: &[MarkdownUnit]) -> Self {
+        let mut entries = HashMap::with_capacity(units.len());
+        for (index, unit) in units.iter().enumerate() {
+            entries
+                .entry((unit.kind, unit.line, unit.column))
+                .and_modify(|entry| *entry = IndexedUnit::Ambiguous)
+                .or_insert(IndexedUnit::Unique(index));
+        }
+        Self { entries }
+    }
 }
 
 #[derive(Debug)]
@@ -191,22 +218,24 @@ pub fn parse_units(source: &str) -> Vec<MarkdownUnit> {
 }
 
 /// Resolve exactly one unit at one-based source coordinates.
-pub fn resolve_unit(
-    units: &[MarkdownUnit],
+pub fn resolve_unit<'a>(
+    units: &'a [MarkdownUnit],
+    index: &UnitIndex,
     kind: UnitKind,
     line: Line,
     column: Column,
-) -> Result<&MarkdownUnit> {
-    let mut matches = units
-        .iter()
-        .filter(|unit| unit.kind == kind && unit.line == line && unit.column == column);
-    let Some(found) = matches.next() else {
+) -> Result<&'a MarkdownUnit> {
+    let Some(entry) = index.entries.get(&(kind, line, column)) else {
         bail!("no {kind} unit starts at line {line}, column {column}");
     };
-    if matches.next().is_some() {
-        bail!("multiple {kind} units start at line {line}, column {column}");
+    match entry {
+        IndexedUnit::Unique(index) => units
+            .get(*index)
+            .ok_or_else(|| anyhow::anyhow!("Markdown unit index is inconsistent")),
+        IndexedUnit::Ambiguous => {
+            bail!("multiple {kind} units start at line {line}, column {column}")
+        }
     }
-    Ok(found)
 }
 
 /// Count non-overlapping literal occurrences.

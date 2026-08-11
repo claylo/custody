@@ -11,7 +11,7 @@ use crate::{
     corpus::Corpus,
     evidence::{EvidenceIssue, IssueCode, PdfBackend, Severity, SummaryDocument, issue_code},
     hash::sha256_file,
-    markdown::{MarkdownUnit, exact_count, parse_units, resolve_unit},
+    markdown::{MarkdownUnit, UnitIndex, exact_count, parse_units, resolve_unit},
     normalize::normalize,
     pdf::PdfTextProvider,
     review, sections, tokens,
@@ -22,6 +22,19 @@ use crate::{
 pub struct ValidationReport {
     pub id: String,
     pub issues: Vec<EvidenceIssue>,
+}
+
+struct IndexedMarkdown {
+    units: Vec<MarkdownUnit>,
+    index: UnitIndex,
+}
+
+impl IndexedMarkdown {
+    fn parse(source: &str) -> Self {
+        let units = parse_units(source);
+        let index = UnitIndex::new(&units);
+        Self { units, index }
+    }
 }
 
 impl ValidationReport {
@@ -53,7 +66,7 @@ pub fn validate_document(
     };
 
     let configured = corpus.source_names();
-    let mut source_units: BTreeMap<&str, Vec<MarkdownUnit>> = BTreeMap::new();
+    let mut source_units: BTreeMap<&str, IndexedMarkdown> = BTreeMap::new();
     let mut source_pdf_path: BTreeMap<&str, PathBuf> = BTreeMap::new();
     let mut source_pdf_sha256: BTreeMap<&str, Option<String>> = BTreeMap::new();
 
@@ -160,7 +173,7 @@ pub fn validate_document(
 
         match corpus.read_contained_text(markdown_path) {
             Ok(markdown_source) => {
-                source_units.insert(source_name, parse_units(&markdown_source));
+                source_units.insert(source_name, IndexedMarkdown::parse(&markdown_source));
             }
             Err(error) => issues.push(source_issue(
                 issue_code::MARKDOWN_READ_FAILED,
@@ -224,63 +237,77 @@ pub fn validate_document(
     };
 
     for entry in &evidence.claims {
+        let mut resolved_units = Vec::with_capacity(entry.locators.len());
         for (locator_index, locator) in entry.locators.iter().enumerate() {
             let locator_index = LocatorIndex::new(locator_index);
             let source_name = locator.source.as_str();
 
-            if let Some(units) = source_units.get(source_name) {
+            let resolved_unit = if let Some(markdown) = source_units.get(source_name) {
                 match resolve_unit(
-                    units,
+                    &markdown.units,
+                    &markdown.index,
                     locator.markdown.unit,
                     locator.markdown.line,
                     locator.markdown.column,
                 ) {
-                    Ok(unit) => match exact_count(&unit.text, &locator.exact) {
-                        1 => {
-                            if !locator.markdown.section.is_empty()
-                                && !sections::paths_match(&locator.markdown.section, &unit.section)
-                            {
-                                issues.push(issue(
-                                    issue_code::STALE_SECTION,
-                                    Severity::Error,
-                                    format!(
-                                        "recorded section {:?} but unit is under {:?}",
-                                        locator.markdown.section, unit.section
-                                    ),
-                                    Some(entry.claim),
-                                    Some(locator_index),
-                                ));
+                    Ok(unit) => {
+                        match exact_count(&unit.text, &locator.exact) {
+                            1 => {
+                                if !locator.markdown.section.is_empty()
+                                    && !sections::paths_match(
+                                        &locator.markdown.section,
+                                        &unit.section,
+                                    )
+                                {
+                                    issues.push(issue(
+                                        issue_code::STALE_SECTION,
+                                        Severity::Error,
+                                        format!(
+                                            "recorded section {:?} but unit is under {:?}",
+                                            locator.markdown.section, unit.section
+                                        ),
+                                        Some(entry.claim),
+                                        Some(locator_index),
+                                    ));
+                                }
                             }
+                            0 => issues.push(issue(
+                                issue_code::MARKDOWN_MISSING,
+                                Severity::Error,
+                                format!(
+                                    "exact text does not occur in the recorded {} unit",
+                                    locator.markdown.unit
+                                ),
+                                Some(entry.claim),
+                                Some(locator_index),
+                            )),
+                            count => issues.push(issue(
+                                issue_code::MARKDOWN_AMBIGUOUS,
+                                Severity::Error,
+                                format!(
+                                    "exact text occurs {count} times in the recorded Markdown unit"
+                                ),
+                                Some(entry.claim),
+                                Some(locator_index),
+                            )),
                         }
-                        0 => issues.push(issue(
-                            issue_code::MARKDOWN_MISSING,
+                        Some(unit)
+                    }
+                    Err(error) => {
+                        issues.push(issue(
+                            issue_code::MARKDOWN_UNIT_MISSING,
                             Severity::Error,
-                            format!(
-                                "exact text does not occur in the recorded {} unit",
-                                locator.markdown.unit
-                            ),
+                            error.to_string(),
                             Some(entry.claim),
                             Some(locator_index),
-                        )),
-                        count => issues.push(issue(
-                            issue_code::MARKDOWN_AMBIGUOUS,
-                            Severity::Error,
-                            format!(
-                                "exact text occurs {count} times in the recorded Markdown unit"
-                            ),
-                            Some(entry.claim),
-                            Some(locator_index),
-                        )),
-                    },
-                    Err(error) => issues.push(issue(
-                        issue_code::MARKDOWN_UNIT_MISSING,
-                        Severity::Error,
-                        error.to_string(),
-                        Some(entry.claim),
-                        Some(locator_index),
-                    )),
+                        ));
+                        None
+                    }
                 }
-            }
+            } else {
+                None
+            };
+            resolved_units.push(resolved_unit);
 
             if locator.pdf.backend == PdfBackend::TesseractOcr && !corpus.ocr_config().enabled {
                 issues.push(issue(
@@ -376,18 +403,8 @@ pub fn validate_document(
 
         let weak_sections = &corpus.sections_config().weak;
         if !weak_sections.is_empty() && !entry.locators.is_empty() {
-            let all_weak = entry.locators.iter().all(|loc| {
-                let Some(units) = source_units.get(loc.source.as_str()) else {
-                    return false;
-                };
-                // An unresolvable unit is already an error; don't judge weakness.
-                resolve_unit(
-                    units,
-                    loc.markdown.unit,
-                    loc.markdown.line,
-                    loc.markdown.column,
-                )
-                .is_ok_and(|unit| sections::is_weak_section(&unit.section, weak_sections))
+            let all_weak = resolved_units.iter().all(|unit| {
+                unit.is_some_and(|unit| sections::is_weak_section(&unit.section, weak_sections))
             });
             if all_weak {
                 issues.push(issue(

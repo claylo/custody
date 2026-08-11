@@ -1,4 +1,4 @@
-use receipts::markdown::{UnitKind, exact_count, parse_units, resolve_unit};
+use receipts::markdown::{UnitIndex, UnitKind, exact_count, parse_units, resolve_unit};
 
 #[test]
 fn keeps_gfm_table_cells_separate() {
@@ -79,15 +79,45 @@ fn emits_heading_and_code_block_units() {
 #[test]
 fn resolves_units_by_exact_coordinates_and_kind() {
     let units = parse_units("first\n\nsecond\n");
+    let index = UnitIndex::new(&units);
     let second = &units[1];
 
     assert_eq!(
-        resolve_unit(&units, UnitKind::Paragraph, second.line, second.column)
-            .unwrap()
-            .text,
+        resolve_unit(
+            &units,
+            &index,
+            UnitKind::Paragraph,
+            second.line,
+            second.column,
+        )
+        .unwrap()
+        .text,
         "second"
     );
-    assert!(resolve_unit(&units, UnitKind::Heading, second.line, second.column).is_err());
+    assert!(
+        resolve_unit(
+            &units,
+            &index,
+            UnitKind::Heading,
+            second.line,
+            second.column,
+        )
+        .is_err()
+    );
+
+    let mut ambiguous = units.clone();
+    ambiguous.push(second.clone());
+    let index = UnitIndex::new(&ambiguous);
+    let error = resolve_unit(
+        &ambiguous,
+        &index,
+        UnitKind::Paragraph,
+        second.line,
+        second.column,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("multiple paragraph units"), "{error}");
 }
 
 #[test]
