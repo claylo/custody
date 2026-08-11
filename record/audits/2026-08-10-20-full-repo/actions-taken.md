@@ -1,13 +1,13 @@
 ---
 audit: 2026-08-10-20-full-repo
-last_updated: 2026-08-10
+last_updated: 2026-08-11
 status:
-  fixed: 36
+  fixed: 39
   mitigated: 0
   accepted: 0
   disputed: 0
   deferred: 0
-  open: 12
+  open: 9
 ---
 
 # Actions Taken: Full repository — Rust source (src/, tests/), dependencies, configuration (.config/, justfile, Cargo.toml, deny.toml), and documented behavior (README.md, receipts.yaml)
@@ -440,3 +440,42 @@ Added a release profile using ThinLTO and one codegen unit so the optimizer can 
 CLI regressions now decode and assert the complete doctor JSON key set, request two explicit summary IDs and verify the stable `summaries` array envelope, and pin non-empty proposal `advisory_tokens` using a two-word proper noun.
 
 The doctor assertion includes the tool path and version-status fields introduced during earlier audit remediation. The complete repository gate passes 202 tests.
+
+---
+
+## 2026-08-11 — Make the verification gate non-mutating and MSRV-aware
+
+**Disposition:** fixed
+**Addresses:** [just-check-is-not-a-complete-gate](README.md#just-check-is-not-a-complete-gate)
+**Commit:** 845417abaf1001f0ede90e8b22b55a2701d6543e
+**Author:** Codex
+
+Added `fmt-check` and `msrv-check` recipes, then changed `just check` to verify formatting without rewriting files and to compile every target and feature with Rust 1.89. `just ci` now selects nextest's CI profile while retaining formatting, MSRV, Clippy, dependency policy, doctest, and documentation checks.
+
+Both nextest profiles pass 202 tests, and the declared MSRV successfully checks every target and feature.
+
+---
+
+## 2026-08-11 — Run the repository gate in GitHub Actions
+
+**Disposition:** fixed
+**Addresses:** [no-automated-ci-for-the-documented-gate](README.md#no-automated-ci-for-the-documented-gate)
+**Commit:** 2406fec35206ac5a9de550ec61b5c1b31dda7428
+**Author:** Codex
+
+Added a least-privilege GitHub Actions workflow for pushes and pull requests. It reads the pinned and minimum Rust versions from repository TOML, installs both toolchains plus checksum-verified `taplo`, `just`, `cargo-nextest`, and `cargo-deny` binaries, caches Cargo and target outputs, and runs `just ci` without installing the external PDF tools.
+
+All third-party actions are pinned to immutable commit SHAs, and `actionlint` validates the workflow.
+
+---
+
+## 2026-08-11 — Disable implicit dotenv loading
+
+**Disposition:** fixed
+**Addresses:** [justfile-loads-repo-supplied-dotenv](README.md#justfile-loads-repo-supplied-dotenv)
+**Commit:** 80b046651a048b8a89e930076c3157bfb6862c79
+**Author:** Codex
+
+Removed global dotenv loading from the justfile so a repository-supplied `.env` can no longer inject Cargo execution variables into the documented build recipes. Added `.env` to `.gitignore` to prevent accidental local commits.
+
+`git check-ignore` confirms the file is excluded, and the strengthened complete gate remains green and non-mutating.
