@@ -209,6 +209,33 @@ fn doctor_reports_corpus_and_executables() {
     assert!(output.contains("OCR profile: ok (tesseract-eng-300dpi-v2)"));
 }
 
+#[cfg(unix)]
+#[test]
+fn closed_stdout_is_a_clean_exit() {
+    use std::{
+        os::{fd::OwnedFd, unix::net::UnixStream},
+        process::Stdio,
+    };
+
+    let corpus = fixture_corpus();
+    let (writer, reader) = UnixStream::pair().unwrap();
+    drop(reader);
+    let writer: OwnedFd = writer.into();
+    let output = Command::new(env!("CARGO_BIN_EXE_receipts"))
+        .arg("-C")
+        .arg(corpus.path())
+        .arg("doctor")
+        .stdout(Stdio::from(writer))
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap()
+        .wait_with_output()
+        .unwrap();
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(!stderr(&output).contains("panicked"));
+}
+
 #[test]
 fn doctor_reports_configured_ocr_profile() {
     let corpus = fixture_corpus();

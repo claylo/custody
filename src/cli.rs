@@ -20,7 +20,7 @@ use crate::{
     hash::sha256_file,
     markdown::{exact_count, parse_units},
     normalize::normalize,
-    output::print_json,
+    output::{print_json, print_line},
     pdf::{PdfBbox, PdfTextProvider, PdfTools, cache::CacheReadPolicy, matching_bbox},
     terms::Terms,
     validate::{ValidationReport, validate_document},
@@ -720,7 +720,7 @@ fn doctor(corpus: &Corpus, tools: &PdfTools, json: bool, quiet: bool) -> Result<
         print_json(&report)?;
     } else if !quiet {
         for (name, status, detail) in &checks {
-            println!("{name}: {status} ({detail})");
+            print_line(format_args!("{name}: {status} ({detail})"))?;
         }
     }
     if !all_ok {
@@ -1056,10 +1056,10 @@ fn audit(
     if json {
         print_json(&report)?;
     } else if !quiet {
-        println!(
+        print_line(format_args!(
             "valid: {}\nmissing: {}\ninvalid: {}",
             report.valid, report.missing, report.invalid
-        );
+        ))?;
     }
     if !json {
         print_audit_issues(&report.summaries);
@@ -1095,7 +1095,7 @@ fn propose_cmd(
         let report =
             crate::propose::propose_document(corpus, &summary, tools, args.candidates, args.all)?;
         if !json && !quiet {
-            print_propose_human(&report, &summary, corpus.terms());
+            print_propose_human(&report, &summary, corpus.terms())?;
         }
         reports.push(report);
     }
@@ -1113,29 +1113,29 @@ fn print_propose_human(
     report: &crate::propose::ProposalReport,
     summary: &crate::evidence::SummaryDocument,
     terms: &Terms,
-) {
+) -> Result<()> {
     for proposal in &report.claims {
         let claim_text = summary
             .claims
             .get(proposal.claim)
             .map_or("<unknown>", String::as_str);
-        println!(
+        print_line(format_args!(
             "# {} {}  {:?}",
             terms.claim,
             proposal.claim,
             truncate(claim_text, CLAIM_PREVIEW_CHARS)
-        );
+        ))?;
         if !proposal.required_tokens.is_empty() {
-            println!(
+            print_line(format_args!(
                 "#   required tokens: {}",
                 proposal.required_tokens.join(", ")
-            );
+            ))?;
         }
         if !proposal.uncovered_tokens.is_empty() {
-            println!(
+            print_line(format_args!(
                 "#   uncovered tokens: {}",
                 proposal.uncovered_tokens.join(", ")
-            );
+            ))?;
         }
 
         for (index, candidate) in proposal.candidates.iter().enumerate() {
@@ -1148,7 +1148,7 @@ fn print_propose_human(
                 || "  (no native PDF match)".to_owned(),
                 |pdf| format!("  p.{} {}", pdf.page, pdf.backend.as_str()),
             );
-            println!(
+            print_line(format_args!(
                 "#   [{}] {}/{}  {}  md:{}:{} {}{section}{pdf}",
                 candidate_label(index),
                 candidate.coverage.matched,
@@ -1157,8 +1157,8 @@ fn print_propose_human(
                 candidate.markdown.line,
                 candidate.markdown.column,
                 candidate.markdown.unit.as_str(),
-            );
-            println!("#       {:?}", candidate.exact);
+            ))?;
+            print_line(format_args!("#       {:?}", candidate.exact))?;
         }
 
         if let Some(first) = proposal.candidates.first()
@@ -1171,19 +1171,20 @@ fn print_propose_human(
             } else {
                 format!(" --source {:?}", first.source)
             };
-            println!("#");
-            println!("#   accept [{}]:", candidate_label(0));
-            println!(
+            print_line(format_args!("#"))?;
+            print_line(format_args!("#   accept [{}]:", candidate_label(0)))?;
+            print_line(format_args!(
                 "#     receipts locate {} --claim {} \\",
                 report.id, proposal.claim
-            );
-            println!(
+            ))?;
+            print_line(format_args!(
                 "#       --exact {:?} --page {}{source}",
                 first.exact, pdf.page
-            );
+            ))?;
         }
-        println!();
+        print_line(format_args!(""))?;
     }
+    Ok(())
 }
 
 /// Longest claim preview kept intact before an ellipsis.
@@ -1312,10 +1313,10 @@ fn print_check_report(report: &CheckReport, json: bool, quiet: bool) -> Result<(
         return print_json(report);
     }
     if !quiet {
-        println!(
+        print_line(format_args!(
             "valid: {}\nskipped: {}\ninvalid: {}",
             report.valid, report.skipped, report.invalid
-        );
+        ))?;
     }
     print_issues(&report.summaries);
     Ok(())
@@ -1374,10 +1375,12 @@ fn print_locate_yaml(payload: &serde_json::Value, terms: &Terms) -> Result<()> {
     let entry = serde_json::to_string_pretty(&field(&terms.claim))?;
     if let Some(pdf_match) = payload.get("pdf_match") {
         let diagnostic = serde_json::to_string(pdf_match)?;
-        println!("# PDF match diagnostic: {diagnostic}");
+        print_line(format_args!("# PDF match diagnostic: {diagnostic}"))?;
     }
-    println!("markdown: {markdown}\npdf: {pdf}\n{}: {entry}", terms.claim);
-    Ok(())
+    print_line(format_args!(
+        "markdown: {markdown}\npdf: {pdf}\n{}: {entry}",
+        terms.claim
+    ))
 }
 
 #[cfg(test)]

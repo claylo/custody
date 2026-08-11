@@ -143,6 +143,10 @@ receipts schema
 receipts completions SHELL
 ```
 
+Report writes are fallible. If a downstream reader closes stdout early (for
+example, `receipts audit --format json | head -1`), receipts exits cleanly
+without creating a crash report.
+
 ### doctor
 
 Probes corpus paths, external tools, extraction profiles, and the cache root.
