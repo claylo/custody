@@ -1,7 +1,7 @@
 use std::{
     fs,
     path::Path,
-    process::{Command, Output},
+    process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -11,7 +11,7 @@ use super::{
     Executable, ExtractedPage, NumericVersion, PdfBbox, TextSpan,
     cache::{CacheManifest, OcrCache, OcrProfile},
     mutool::Mutool,
-    parse_numeric_version,
+    parse_numeric_version, run,
 };
 use crate::{coordinate::Page, normalize::normalize};
 
@@ -386,17 +386,4 @@ pub fn parse_orientation(output: &str) -> i16 {
 
 fn extracted_page(page: Page, tsv: &str) -> Result<ExtractedPage> {
     Ok(parse_tsv(tsv)?.into_extracted_page(page))
-}
-
-fn run(command: &mut Command, label: &str) -> Result<Output> {
-    let output = command
-        .output()
-        .with_context(|| format!("failed to execute {label}"))?;
-    if !output.status.success() {
-        bail!(
-            "{label} failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-    Ok(output)
 }

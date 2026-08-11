@@ -3,6 +3,7 @@
 use std::{
     env, fmt, fs,
     path::{Path, PathBuf},
+    process::{Command, Output},
 };
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -13,6 +14,19 @@ use crate::coordinate::Page;
 pub mod cache;
 pub mod mutool;
 pub mod tesseract;
+
+pub(crate) fn run(command: &mut Command, label: &str) -> Result<Output> {
+    let output = command
+        .output()
+        .with_context(|| format!("failed to execute {label}"))?;
+    if !output.status.success() {
+        bail!(
+            "{label} failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(output)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct NumericVersion {

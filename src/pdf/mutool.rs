@@ -1,12 +1,9 @@
-use std::{
-    path::Path,
-    process::{Command, Output},
-};
+use std::{path::Path, process::Command};
 
 use anyhow::{Context, Result, anyhow, bail};
 use serde::Deserialize;
 
-use super::{Executable, NumericVersion, parse_numeric_version};
+use super::{Executable, NumericVersion, parse_numeric_version, run};
 use super::{ExtractedPage, PdfBbox, TextSpan};
 use crate::{coordinate::Page, normalize::normalize};
 
@@ -143,19 +140,6 @@ pub fn parse_stext_json(source: &str) -> Result<Vec<ExtractedPage>> {
             })
         })
         .collect()
-}
-
-fn run(command: &mut Command, label: &str) -> Result<Output> {
-    let output = command
-        .output()
-        .with_context(|| format!("failed to execute {label}"))?;
-    if !output.status.success() {
-        bail!(
-            "{label} failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-    Ok(output)
 }
 
 #[derive(Debug, Deserialize)]
