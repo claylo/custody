@@ -2,12 +2,12 @@
 audit: 2026-08-10-20-full-repo
 last_updated: 2026-08-10
 status:
-  fixed: 5
+  fixed: 6
   mitigated: 0
   accepted: 0
   disputed: 0
   deferred: 0
-  open: 43
+  open: 42
 ---
 
 # Actions Taken: Full repository — Rust source (src/, tests/), dependencies, configuration (.config/, justfile, Cargo.toml, deny.toml), and documented behavior (README.md, receipts.yaml)
@@ -78,3 +78,16 @@ Regression coverage exercises a broken summary symlink, an over-depth real direc
 OCR DPI is now validated against an explicit `1..=1200` range during corpus configuration loading. `PdfTools` repeats the same validation and returns an error during construction, replacing the previous `u32`-to-`u16` saturation that could turn an invalid value into a 65,535 DPI render request.
 
 Boundary tests pin acceptance at 1200, rejection at 1201, and rejection when a caller bypasses corpus validation and constructs `PdfTools` with `u32::MAX`. The public configuration docs and README state the enforced range.
+
+---
+
+## 2026-08-10 — Pin external tool executables
+
+**Disposition:** fixed
+**Addresses:** [external-tool-paths-resolved-from-ambient-path](README.md#external-tool-paths-resolved-from-ambient-path)
+**Commit:** 1d0daa74eac52707719c85dc88f3df3f0cd5c64b
+**Author:** Codex
+
+Added optional absolute `pdf.tools.mutool` and `pdf.tools.tesseract` paths while retaining bare-name lookup as the default. Both forms are resolved and canonicalized once when `PdfTools` is constructed, and every subprocess invocation uses that stored absolute path. `doctor` now reports each resolved path alongside its version.
+
+The canonical paths are part of `OcrProfile` and therefore the cache key, preventing same-version binaries at different locations from sharing entries. The OCR profile directory is bumped to `v2`; regression coverage proves configured binaries work with an empty ambient `PATH`, relative configured paths are rejected, and cache identity changes with executable identity.
