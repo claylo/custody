@@ -2,12 +2,12 @@
 audit: 2026-08-10-20-full-repo
 last_updated: 2026-08-10
 status:
-  fixed: 27
+  fixed: 30
   mitigated: 0
   accepted: 0
   disputed: 0
   deferred: 0
-  open: 21
+  open: 18
 ---
 
 # Actions Taken: Full repository — Rust source (src/, tests/), dependencies, configuration (.config/, justfile, Cargo.toml, deny.toml), and documented behavior (README.md, receipts.yaml)
@@ -325,3 +325,42 @@ Removed the unreachable human-output fallback and optional acceptance-command gu
 Added `Deserialize` and comparison support across proposal reports, validation reports, evidence issues, severity values, locators, and PDF bounding boxes. Report producers and consumers can now share the same public types instead of falling back to untyped JSON values.
 
 The CLI proposal regression decodes the command envelope into `ProposalReport`, asserts through typed fields, and verifies a serialize-deserialize round trip with `PartialEq`. The complete repository gate passes 199 tests.
+
+---
+
+## 2026-08-10 — Batch multi-page native PDF extraction
+
+**Disposition:** fixed
+**Addresses:** [validate-spawns-one-mutool-per-cited-page](README.md#validate-spawns-one-mutool-per-cited-page)
+**Commit:** 0fc1bd311dcd4e6b56486b192f79c84de9b452df
+**Author:** Codex
+
+Validation now collects distinct native page citations per source before checking locators. A source citing multiple pages is extracted once with `native_pages(..., None)` and indexed into the existing page memo; a source citing exactly one page retains the lower-memory single-page extraction path.
+
+A counting-provider regression proves two cited pages produce one whole-document call instead of two subprocess-shaped calls. Missing pages and extraction failures remain memoized as page-specific validation errors, and the complete gate passes 200 tests.
+
+---
+
+## 2026-08-10 — Prepare proposal spans once per source
+
+**Disposition:** fixed
+**Addresses:** [propose-regenerates-claim-independent-spans-per-claim](README.md#propose-regenerates-claim-independent-spans-per-claim)
+**Commit:** 063f469e73e6a415d2f25860c939258e241ac6af
+**Author:** Codex
+
+Split proposal generation into claim-independent span preparation and per-claim token scoring. Sentence splitting, exact-text uniqueness checks, source allocation, and section preparation now occur once per Markdown source rather than once per claim.
+
+Scored candidates borrow prepared spans, share section metadata through `Rc<[String]>`, and clone locator data only after PDF verification accepts a candidate. Existing proposal ranking, determinism, truncation, and output tests pass unchanged.
+
+---
+
+## 2026-08-10 — Index Markdown locator coordinates
+
+**Disposition:** fixed
+**Addresses:** [resolve-unit-linear-scan-called-twice-per-locator](README.md#resolve-unit-linear-scan-called-twice-per-locator)
+**Commit:** 3f53e4ab4d5d9d09450c98f0c58a2c3b0fad323b
+**Author:** Codex
+
+Added a `UnitIndex` keyed by unit kind, line, and column, with explicit unique and ambiguous states. Validation builds the index once beside each parsed Markdown document and resolves locator coordinates with constant-time lookups while preserving the existing missing and multiple-unit diagnostics.
+
+Each resolved unit is retained through the claim pass and reused by weak-section evaluation, eliminating the second lookup. Regression coverage pins successful, missing-kind, and duplicate-coordinate behavior; the complete gate passes 200 tests.
