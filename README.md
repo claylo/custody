@@ -82,6 +82,10 @@ not trusted evidence. Pass `--trust-cache` to reuse entries from that directory
 only when you trust the checkout; the opt-in is deliberately a CLI flag, not
 project configuration.
 
+Summary and converted-Markdown inputs must resolve to regular files inside the
+corpus and may be at most 64 MiB each. The same boundary applies to `locate`,
+`check`, `audit`, and `propose`.
+
 Discovery walks up from the working directory, checking `.config/receipts.yaml`,
 `.receipts.yaml`, then `receipts.yaml` in each ancestor, stopping at a `.git`
 boundary. TOML and JSON are also accepted. If nothing is found, the corpus root

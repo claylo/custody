@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    fs,
     path::{Path, PathBuf},
 };
 
@@ -137,7 +136,7 @@ pub fn validate_document(
         source_pdf_sha256.insert(source_name, pdf_sha256);
         source_pdf_path.insert(source_name, pdf_path);
 
-        match fs::read_to_string(markdown_path) {
+        match corpus.read_contained_text(markdown_path) {
             Ok(markdown_source) => {
                 source_units.insert(source_name, parse_units(&markdown_source));
             }
@@ -454,9 +453,9 @@ fn validate_resolved_source(
     path: &Path,
     issues: &mut Vec<EvidenceIssue>,
 ) -> bool {
-    match path.canonicalize() {
-        Ok(resolved) if resolved.starts_with(corpus.root()) => true,
-        Ok(resolved) => {
+    match corpus.resolve_contained_file(path) {
+        Ok(crate::corpus::ResolvedCorpusFile::Contained(_)) => true,
+        Ok(crate::corpus::ResolvedCorpusFile::Outside(resolved)) => {
             issues.push(issue(
                 format!("{label}_source_outside_repo"),
                 Severity::Error,

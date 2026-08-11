@@ -676,11 +676,7 @@ fn locate(corpus: &Corpus, tools: &PdfTools, args: &LocateArgs, json: bool) -> R
         bail!("--column requires --line");
     }
     let summary_path = corpus.summary_path(&args.id)?;
-    let summary = parse_summary(
-        &fs::read_to_string(&summary_path)
-            .with_context(|| format!("failed to read {}", summary_path.display()))?,
-        corpus.terms(),
-    )?;
+    let summary = parse_summary(&corpus.read_contained_text(&summary_path)?, corpus.terms())?;
     if summary.id != args.id {
         bail!(
             "summary ID {:?} does not match filename ID {:?}",
@@ -698,8 +694,7 @@ fn locate(corpus: &Corpus, tools: &PdfTools, args: &LocateArgs, json: bool) -> R
     }
 
     let markdown_path = resolve_markdown_for(corpus, &args.id, &args.source)?;
-    let markdown_source = fs::read_to_string(&markdown_path)
-        .with_context(|| format!("failed to read {}", markdown_path.display()))?;
+    let markdown_source = corpus.read_contained_text(&markdown_path)?;
     let candidates: Vec<_> = parse_units(&markdown_source)
         .into_iter()
         .filter(|unit| args.line.is_none_or(|line| unit.line == line))
@@ -1138,8 +1133,7 @@ fn truncate(text: &str, max_chars: usize) -> String {
 
 fn read_summary(corpus: &Corpus, id: &str) -> Result<crate::evidence::SummaryDocument> {
     let path = corpus.summary_path(id)?;
-    let source =
-        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let source = corpus.read_contained_text(&path)?;
     parse_summary(&source, corpus.terms())
         .with_context(|| format!("failed to parse {}", path.display()))
 }

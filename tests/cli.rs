@@ -90,6 +90,44 @@ fn audit_rejects_a_filename_id_mismatch() {
     assert!(stderr(&output).contains("id_mismatch"));
 }
 
+#[cfg(unix)]
+#[test]
+fn audit_rejects_a_summary_symlink_outside_the_corpus() {
+    use std::os::unix::fs::symlink;
+
+    let corpus = fixture_corpus();
+    let outside = tempfile::tempdir().unwrap();
+    let outside_summary = outside.path().join("missing-evidence.yaml");
+    fs::write(
+        &outside_summary,
+        "id: missing-evidence\nclaims:\n  - A claim without evidence.\n",
+    )
+    .unwrap();
+    let summary = corpus.path().join("summaries/missing-evidence.yaml");
+    fs::remove_file(&summary).unwrap();
+    symlink(&outside_summary, &summary).unwrap();
+
+    let output = receipts(corpus.path(), &["audit", "missing-evidence"]);
+
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("resolves outside the corpus"));
+}
+
+#[test]
+fn audit_rejects_an_oversized_summary_before_reading_it() {
+    let corpus = fixture_corpus();
+    let summary = corpus.path().join("summaries/missing-evidence.yaml");
+    fs::File::create(&summary)
+        .unwrap()
+        .set_len(64 * 1024 * 1024 + 1)
+        .unwrap();
+
+    let output = receipts(corpus.path(), &["audit", "missing-evidence"]);
+
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("exceeds the 67108864-byte corpus text limit"));
+}
+
 #[test]
 fn quiet_audit_suppresses_non_error_output() {
     let corpus = fixture_corpus();

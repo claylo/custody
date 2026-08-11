@@ -6,7 +6,6 @@
 //! so the same corpus always yields the same suggestions.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::fs;
 
 use anyhow::Result;
 use serde::Serialize;
@@ -136,7 +135,7 @@ pub fn propose_document(
     for source_name in corpus.source_names() {
         let markdown_candidates = corpus.markdown_candidates_for(&summary.id, &source_name)?;
         if let Some(path) = markdown_candidates.iter().find(|path| path.is_file())
-            && let Ok(markdown) = fs::read_to_string(path)
+            && let Ok(markdown) = corpus.read_contained_text(path)
         {
             source_units.insert(source_name.clone(), parse_units(&markdown));
         }

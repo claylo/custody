@@ -3,6 +3,7 @@
 use std::{
     ffi::OsString,
     fs,
+    io::Read,
     path::{Path, PathBuf},
 };
 
@@ -10,6 +11,13 @@ use anyhow::{Context, Result, bail};
 
 use crate::config::{self, CorpusLayout, Discovered, SourceTemplates};
 use crate::evidence::DEFAULT_SOURCE;
+
+const MAX_CORPUS_TEXT_BYTES: u64 = 64 * 1024 * 1024;
+
+pub(crate) enum ResolvedCorpusFile {
+    Contained(PathBuf),
+    Outside(PathBuf),
+}
 
 /// A resolved corpus: root directory, layout templates, and cache root.
 #[derive(Debug, Clone)]
@@ -91,6 +99,57 @@ impl Corpus {
     #[must_use]
     pub fn cache_is_corpus_local(&self) -> bool {
         self.cache_root.starts_with(&self.root)
+    }
+
+    pub(crate) fn resolve_contained_file(&self, path: &Path) -> Result<ResolvedCorpusFile> {
+        let resolved = path
+            .canonicalize()
+            .with_context(|| format!("failed to resolve {}", path.display()))?;
+        if !resolved.starts_with(&self.root) {
+            return Ok(ResolvedCorpusFile::Outside(resolved));
+        }
+        if !resolved
+            .metadata()
+            .with_context(|| format!("failed to inspect {}", resolved.display()))?
+            .is_file()
+        {
+            bail!("{} is not a regular file", resolved.display());
+        }
+        Ok(ResolvedCorpusFile::Contained(resolved))
+    }
+
+    pub(crate) fn read_contained_text(&self, path: &Path) -> Result<String> {
+        let resolved = match self.resolve_contained_file(path)? {
+            ResolvedCorpusFile::Contained(resolved) => resolved,
+            ResolvedCorpusFile::Outside(resolved) => bail!(
+                "{} resolves outside the corpus to {}",
+                path.display(),
+                resolved.display()
+            ),
+        };
+        let file = fs::File::open(&resolved)
+            .with_context(|| format!("failed to open {}", resolved.display()))?;
+        let length = file
+            .metadata()
+            .with_context(|| format!("failed to inspect {}", resolved.display()))?
+            .len();
+        if length > MAX_CORPUS_TEXT_BYTES {
+            bail!(
+                "{} exceeds the {MAX_CORPUS_TEXT_BYTES}-byte corpus text limit",
+                resolved.display()
+            );
+        }
+        let mut source = String::new();
+        file.take(MAX_CORPUS_TEXT_BYTES + 1)
+            .read_to_string(&mut source)
+            .with_context(|| format!("failed to read {} as UTF-8", resolved.display()))?;
+        if u64::try_from(source.len()).unwrap_or(u64::MAX) > MAX_CORPUS_TEXT_BYTES {
+            bail!(
+                "{} exceeds the {MAX_CORPUS_TEXT_BYTES}-byte corpus text limit",
+                resolved.display()
+            );
+        }
+        Ok(source)
     }
 
     /// Path of the discovered project config file, if any.
