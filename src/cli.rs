@@ -148,6 +148,13 @@ enum AuditStatus {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(untagged)]
+enum ProposalSummary {
+    Proposed(crate::propose::ProposalReport),
+    Failed(ValidationReport),
+}
+
+#[derive(Debug, Serialize)]
 struct LocateResult {
     source: String,
     markdown: SourceRecord,
@@ -1082,22 +1089,40 @@ fn propose_cmd(
     } else {
         args.ids.clone()
     };
+    let mut failed = 0;
     let mut reports = Vec::new();
     for id in &ids {
-        let summary = read_summary(corpus, id)?;
+        let summary = match read_summary(corpus, id) {
+            Ok(summary) => summary,
+            Err(error) => {
+                failed += 1;
+                let report = error_report(id.clone(), "summary_parse_failed", error.to_string());
+                if !json {
+                    print_issues(std::slice::from_ref(&report));
+                }
+                reports.push(ProposalSummary::Failed(report));
+                continue;
+            }
+        };
         if summary.id != *id {
-            bail!(
-                "summary ID {:?} does not match filename ID {:?}",
-                summary.id,
-                id
+            failed += 1;
+            let report = error_report(
+                id.clone(),
+                "id_mismatch",
+                format!("summary ID {:?} does not match filename", summary.id),
             );
+            if !json {
+                print_issues(std::slice::from_ref(&report));
+            }
+            reports.push(ProposalSummary::Failed(report));
+            continue;
         }
         let report =
             crate::propose::propose_document(corpus, &summary, tools, args.candidates, args.all)?;
         if !json && !quiet {
             print_propose_human(&report, &summary, corpus.terms())?;
         }
-        reports.push(report);
+        reports.push(ProposalSummary::Proposed(report));
     }
     if json {
         if reports.len() == 1 {
@@ -1105,6 +1130,9 @@ fn propose_cmd(
         } else {
             print_json(&serde_json::json!({ "summaries": reports }))?;
         }
+    }
+    if failed > 0 {
+        bail!("{failed} summary or summaries could not be proposed");
     }
     Ok(())
 }

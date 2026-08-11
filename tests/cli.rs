@@ -619,6 +619,69 @@ fn propose_emits_candidates_for_claims_without_evidence() {
     assert_eq!(candidate["pdf"]["backend"], "mutool-native");
 }
 
+#[test]
+fn propose_keeps_successes_when_other_summaries_cannot_be_read() {
+    let temp = tempfile::tempdir().unwrap();
+    for path in ["summaries", "md/smith-2019", "pdfs"] {
+        fs::create_dir_all(temp.path().join(path)).unwrap();
+    }
+    fs::write(
+        temp.path().join("receipts.yaml"),
+        "cache:\n  root: \".cache/pdf-text\"\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("summaries/smith-2019.yaml"),
+        "id: smith-2019\nclaims:\n  - \"The rate was 67.5% in controls.\"\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("summaries/broken.yaml"),
+        "id: [unterminated\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("summaries/wrong-id.yaml"),
+        "id: different-id\nclaims:\n  - A claim.\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("md/smith-2019/smith-2019.md"),
+        "The rate was 67.5% in the control group.\n",
+    )
+    .unwrap();
+    fs::write(temp.path().join("pdfs/smith-2019.pdf"), TEXT_PDF).unwrap();
+
+    let output = receipts_json(temp.path(), &["propose"]);
+    assert!(!output.status.success());
+
+    let json_stdout = stdout(&output);
+    let report: serde_json::Value =
+        serde_json::from_str(&json_stdout).expect("propose preserves a JSON batch report");
+    let summaries = report["summaries"].as_array().unwrap();
+    assert_eq!(summaries.len(), 3);
+    assert!(summaries.iter().any(|entry| {
+        entry["id"] == "smith-2019"
+            && entry["claims"]
+                .as_array()
+                .is_some_and(|claims| !claims.is_empty())
+    }));
+    assert!(summaries.iter().any(|entry| {
+        entry["id"] == "broken" && entry["issues"][0]["code"] == "summary_parse_failed"
+    }));
+    assert!(
+        summaries.iter().any(|entry| {
+            entry["id"] == "wrong-id" && entry["issues"][0]["code"] == "id_mismatch"
+        })
+    );
+
+    let human = receipts(temp.path(), &["propose"]);
+    assert!(!human.status.success());
+    assert!(stdout(&human).contains("# claim 0"));
+    assert!(stderr(&human).contains("broken: summary_parse_failed"));
+    assert!(stderr(&human).contains("wrong-id: id_mismatch"));
+}
+
 fn fixture_corpus() -> tempfile::TempDir {
     let temp = tempfile::tempdir().unwrap();
     for path in ["summaries", "md/missing-evidence", "pdfs"] {
