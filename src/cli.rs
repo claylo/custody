@@ -550,7 +550,7 @@ fn locate(corpus: &Corpus, tools: &PdfTools, args: &LocateArgs, json: bool) -> R
             .iter()
             .map(|unit| {
                 format!(
-                    "{:?} at {}:{}: {:?}",
+                    "{} at {}:{}: {:?}",
                     unit.kind, unit.line, unit.column, unit.text
                 )
             })

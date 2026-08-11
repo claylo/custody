@@ -136,12 +136,12 @@ fn locator_is_bounded_to_the_recorded_markdown_unit() {
         false,
     );
 
-    assert!(
-        report
-            .issues
-            .iter()
-            .any(|issue| issue.code == "markdown_missing")
-    );
+    let issue = report
+        .issues
+        .iter()
+        .find(|issue| issue.code == "markdown_missing")
+        .unwrap();
+    assert!(issue.message.contains("recorded paragraph unit"));
 }
 
 #[test]

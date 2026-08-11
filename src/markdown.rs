@@ -1,3 +1,5 @@
+use std::fmt;
+
 use anyhow::{Result, bail};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use serde::{Deserialize, Serialize};
@@ -31,6 +33,12 @@ impl UnitKind {
             Self::TableCell => "table_cell",
             Self::CodeBlock => "code_block",
         }
+    }
+}
+
+impl fmt::Display for UnitKind {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
     }
 }
 
@@ -193,10 +201,10 @@ pub fn resolve_unit(
         .iter()
         .filter(|unit| unit.kind == kind && unit.line == line && unit.column == column);
     let Some(found) = matches.next() else {
-        bail!("no {kind:?} unit starts at line {line}, column {column}");
+        bail!("no {kind} unit starts at line {line}, column {column}");
     };
     if matches.next().is_some() {
-        bail!("multiple {kind:?} units start at line {line}, column {column}");
+        bail!("multiple {kind} units start at line {line}, column {column}");
     }
     Ok(found)
 }

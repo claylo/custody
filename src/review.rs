@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, fmt};
 
 use serde::{Deserialize, Serialize};
 
@@ -15,6 +15,25 @@ pub enum Verdict {
     Partial,
     Unsupported,
     Unclear,
+}
+
+impl Verdict {
+    /// The serialized name used by evidence files and diagnostics.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Supported => "supported",
+            Self::Partial => "partial",
+            Self::Unsupported => "unsupported",
+            Self::Unclear => "unclear",
+        }
+    }
+}
+
+impl fmt::Display for Verdict {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -179,7 +198,7 @@ pub fn validate_review(
                     issue_code::UNSUPPORTED_VERDICT,
                     Severity::Error,
                     format!(
-                        "{} {} verdict is {:?}, not supported",
+                        "{} {} verdict is {}, not supported",
                         terms.claim, entry.claim, entry.verdict
                     ),
                     Some(entry.claim),

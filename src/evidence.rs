@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+};
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -101,6 +104,12 @@ impl PdfBackend {
             Self::MutoolNative => "mutool-native",
             Self::TesseractOcr => "tesseract-ocr",
         }
+    }
+}
+
+impl fmt::Display for PdfBackend {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
     }
 }
 

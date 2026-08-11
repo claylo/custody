@@ -213,7 +213,7 @@ pub fn validate_document(
                             issue_code::MARKDOWN_MISSING,
                             Severity::Error,
                             format!(
-                                "exact text does not occur in the recorded {:?} unit",
+                                "exact text does not occur in the recorded {} unit",
                                 locator.markdown.unit
                             ),
                             Some(entry.claim),

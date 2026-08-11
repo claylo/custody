@@ -282,10 +282,11 @@ fn unsupported_verdict_reported_only_with_require_review() {
     );
 
     let with = validate_review(&review, &claims, Some(&evidence), true, &Terms::default());
-    assert!(
-        with.iter().any(|i| i.code == "unsupported_verdict"),
-        "{with:?}"
-    );
+    let issue = with
+        .iter()
+        .find(|issue| issue.code == "unsupported_verdict")
+        .unwrap();
+    assert!(issue.message.contains("verdict is unsupported"));
 }
 
 #[test]
