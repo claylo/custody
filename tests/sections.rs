@@ -7,7 +7,7 @@ fn weak(headings: &[&str]) -> bool {
     let section: Vec<String> = headings.iter().map(|h| (*h).to_string()).collect();
     is_weak_section(
         &section,
-        &["Limitations".to_owned(), "Future Work".to_owned()],
+        &["limitations".to_owned(), "future work".to_owned()],
     )
 }
 

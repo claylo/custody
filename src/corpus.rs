@@ -30,6 +30,7 @@ pub struct Corpus {
     pdf_config: crate::config::PdfConfig,
     coverage_config: crate::config::CoverageConfig,
     sections_config: crate::config::SectionsConfig,
+    weak_sections: Vec<String>,
 }
 
 impl Corpus {
@@ -49,6 +50,12 @@ impl Corpus {
             Some(value) => resolve_cache_root(&root, value)?,
             None => config::platform_cache_root()?,
         };
+        let weak_sections = config
+            .sections
+            .weak
+            .iter()
+            .map(|section| section.to_lowercase())
+            .collect();
         Ok(Self {
             root,
             layout: config.corpus,
@@ -58,6 +65,7 @@ impl Corpus {
             pdf_config: config.pdf,
             coverage_config: config.coverage,
             sections_config: config.sections,
+            weak_sections,
         })
     }
 
@@ -89,6 +97,12 @@ impl Corpus {
     #[must_use]
     pub const fn sections_config(&self) -> &crate::config::SectionsConfig {
         &self.sections_config
+    }
+
+    /// Configured weak-section substrings, normalized for matching.
+    #[must_use]
+    pub fn weak_sections(&self) -> &[String] {
+        &self.weak_sections
     }
 
     #[must_use]

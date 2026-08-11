@@ -234,6 +234,7 @@ pub fn validate_document(
         TokenSeverity::Warn => Some(Severity::Warning),
         TokenSeverity::Off => None,
     };
+    let weak_sections = corpus.weak_sections();
 
     for entry in &evidence.claims {
         let mut resolved_units = Vec::with_capacity(entry.locators.len());
@@ -400,7 +401,6 @@ pub fn validate_document(
             }
         }
 
-        let weak_sections = &corpus.sections_config().weak;
         if !weak_sections.is_empty() && !entry.locators.is_empty() {
             let all_weak = resolved_units.iter().all(|unit| {
                 unit.is_some_and(|unit| sections::is_weak_section(&unit.section, weak_sections))

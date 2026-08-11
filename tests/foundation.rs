@@ -436,6 +436,7 @@ fn exposes_coverage_and_sections_config_from_corpus() {
 
     assert_eq!(corpus.coverage_config().tokens, config::TokenSeverity::Warn);
     assert_eq!(corpus.sections_config().weak, ["Abstract", "References"]);
+    assert_eq!(corpus.weak_sections(), ["abstract", "references"]);
 }
 
 /// The YAML layer resolves a bare `off` to the boolean `false`, so this pins
