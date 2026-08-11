@@ -2,12 +2,12 @@
 audit: 2026-08-10-20-full-repo
 last_updated: 2026-08-10
 status:
-  fixed: 33
+  fixed: 36
   mitigated: 0
   accepted: 0
   disputed: 0
   deferred: 0
-  open: 15
+  open: 12
 ---
 
 # Actions Taken: Full repository — Rust source (src/, tests/), dependencies, configuration (.config/, justfile, Cargo.toml, deny.toml), and documented behavior (README.md, receipts.yaml)
@@ -401,3 +401,42 @@ Changed canonical JSON sorting to consume each owned `serde_json::Value`, moving
 `Corpus::source_names` now returns a borrowed iterator, and `Corpus::declares_source` delegates membership checks directly to the configured source map. Proposal generation iterates borrowed names, while validation replaces allocation plus linear scan with the map lookup.
 
 Foundation regressions cover iteration order and positive and negative membership. The complete repository gate passes 201 tests.
+
+---
+
+## 2026-08-10 — Normalize weak-section patterns once
+
+**Disposition:** fixed
+**Addresses:** [weak-section-list-lowercased-per-comparison](README.md#weak-section-list-lowercased-per-comparison)
+**Commit:** 787d56265dfc3bd3539db3fbcf4fe8aade19b07c
+**Author:** Codex
+
+Corpus construction now derives lowercase weak-section patterns once while preserving the original user configuration for inspection. Validation reuses the derived list for every locator and only lowercases each source heading once per comparison.
+
+Foundation and section regressions pin the normalized configuration view and retain case-insensitive substring matching, including mixed-case headings.
+
+---
+
+## 2026-08-10 — Optimize release builds across modules
+
+**Disposition:** fixed
+**Addresses:** [release-profile-left-at-cargo-defaults](README.md#release-profile-left-at-cargo-defaults)
+**Commit:** ff8dca21495d19b5669fbf77ac25578b83cec9a9
+**Author:** Codex
+
+Added a release profile using ThinLTO and one codegen unit so the optimizer can inline across the in-process parsing, normalization, and scanning modules. Panic behavior remains unchanged; the build continues to unwind for the configured crash handler.
+
+`cargo build --release` completes successfully with the optimized profile. Runtime gains remain corpus-dependent and should be measured against representative production inputs.
+
+---
+
+## 2026-08-10 — Pin structured CLI output contracts
+
+**Disposition:** fixed
+**Addresses:** [structured-output-contracts-untested](README.md#structured-output-contracts-untested)
+**Commit:** 4e3966daf52cbdc2732c01ba649d40837c530cca
+**Author:** Codex
+
+CLI regressions now decode and assert the complete doctor JSON key set, request two explicit summary IDs and verify the stable `summaries` array envelope, and pin non-empty proposal `advisory_tokens` using a two-word proper noun.
+
+The doctor assertion includes the tool path and version-status fields introduced during earlier audit remediation. The complete repository gate passes 202 tests.
