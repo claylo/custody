@@ -2,12 +2,12 @@
 audit: 2026-08-10-20-full-repo
 last_updated: 2026-08-11
 status:
-  fixed: 42
+  fixed: 47
   mitigated: 0
   accepted: 1
   disputed: 0
   deferred: 0
-  open: 5
+  open: 0
 ---
 
 # Actions Taken: Full repository — Rust source (src/, tests/), dependencies, configuration (.config/, justfile, Cargo.toml, deny.toml), and documented behavior (README.md, receipts.yaml)
@@ -529,3 +529,68 @@ Added a literal `(3, 1)` assertion for the second paragraph in a multi-unit docu
 Accepted the compile-time-only `syn` 2/3 duplication because neither version is selected directly by `receipts`: `syn` 2 arrives only through `librebar`'s `tracing-attributes`, while the Clap, Serde, and Thiserror derives already use `syn` 3. Adding a cargo-deny skip would hide the upstream convergence signal and later become a stale-policy warning.
 
 `cargo tree -d` also confirms the existing `supports-color` 2/3 skip remains necessary through `owo-colors`. Re-check this acceptance after the next `librebar` dependency update.
+
+---
+
+## 2026-08-11 — Split validation into focused stages
+
+**Disposition:** fixed
+**Addresses:** [validate-document-carries-seven-concerns](README.md#validate-document-carries-seven-concerns)
+**Commit:** c355fff3350569c9fe668ffb4fffdc813d5b3726
+**Author:** Codex
+
+Replaced the parallel source maps with a `ResolvedSource` that keeps each PDF path and hash beside its optional indexed Markdown. Extracted source resolution, native-page preloading, locator validation, token coverage, and weak-section checks into focused helpers, leaving `validate_document` as the pipeline coordinator.
+
+The optional Markdown state preserves PDF validation when a Markdown source cannot be read. The 20 validation regressions and the complete repository gate pass.
+
+---
+
+## 2026-08-11 — Share summary evaluation across check and audit
+
+**Disposition:** fixed
+**Addresses:** [check-and-audit-duplicate-the-summary-loop](README.md#check-and-audit-duplicate-the-summary-loop)
+**Commit:** 51d51dd3073daf9e84c2607de8e4b9f833273cb5
+**Author:** Codex
+
+Introduced one `SummaryOutcome` pipeline for parsing, ID validation, missing evidence, and evidence validation. A small missing-evidence policy preserves the intentional difference between targeted `check` and aggregate audit behavior, while both commands now share issue rendering.
+
+The 34 CLI regressions pin the command-specific counters, exit behavior, and diagnostics. The complete repository gate passes.
+
+---
+
+## 2026-08-11 — Centralize evidence issue construction
+
+**Disposition:** fixed
+**Addresses:** [duplicated-issue-constructors](README.md#duplicated-issue-constructors)
+**Commit:** c3e3291eec811c8c6a699f5f33b82944940ddfd0
+**Author:** Codex
+
+Made the evidence module's issue constructor the single struct-literal boundary and added a source-scoping builder for source-specific diagnostics. Validation, review, and CLI paths now use that shared construction contract instead of maintaining duplicate helpers.
+
+Evidence, review, validation, and CLI regressions all pass, and a source search confirms no duplicate `EvidenceIssue` struct literals remain.
+
+---
+
+## 2026-08-11 — Share PDF subprocess execution
+
+**Disposition:** fixed
+**Addresses:** [duplicated-subprocess-runner](README.md#duplicated-subprocess-runner)
+**Commit:** 02bc21c40263af4909cdf309aa9b9b85f07ad596
+**Author:** Codex
+
+Moved subprocess execution into one private PDF-module runner and routed both MuPDF and Tesseract through it. Exit-status checks and stderr propagation now have one implementation while each backend retains its own command construction and output parsing.
+
+MuPDF and OCR-cache regressions pass, along with the complete repository gate.
+
+---
+
+## 2026-08-11 — Remove dead output helpers
+
+**Disposition:** fixed
+**Addresses:** [dead-public-vocabulary-and-report-helpers](README.md#dead-public-vocabulary-and-report-helpers)
+**Commit:** 73e181188f6bb27f3909df295f3a8de8629fd2e3
+**Author:** Codex
+
+Deleted the unused whole-document `Terms::localize` API and its test instead of implying that check and audit rewrite parsed documents for output. The module documentation now states the actual contract: inputs are canonicalized internally and only `locate` output is localized to corpus vocabulary.
+
+Also removed the unused `ValidationReport::has_warnings` query. Terms, validation, and CLI regressions pass, and the complete repository gate finishes with 202 tests.
