@@ -2,12 +2,12 @@
 audit: 2026-08-10-20-full-repo
 last_updated: 2026-08-10
 status:
-  fixed: 20
+  fixed: 24
   mitigated: 0
   accepted: 0
   disputed: 0
   deferred: 0
-  open: 28
+  open: 24
 ---
 
 # Actions Taken: Full repository — Rust source (src/, tests/), dependencies, configuration (.config/, justfile, Cargo.toml, deny.toml), and documented behavior (README.md, receipts.yaml)
@@ -247,3 +247,42 @@ A child-process regression sets a conflicting `RECEIPTS_CORPUS__SUMMARIES` value
 Documented the accepted summary ID grammar in the README and repeated it in runtime rejection messages and CLI schema metadata. IDs must contain at least three lowercase ASCII letters, digits, or interior hyphens, with no leading or trailing hyphen.
 
 The corpus regression now covers traversal, uppercase, undersized, and leading-hyphen inputs and requires the actionable grammar explanation for every rejection.
+
+---
+
+## 2026-08-10 — Encode a non-publishable package posture
+
+**Disposition:** fixed
+**Addresses:** [entire-crate-is-a-published-public-api](README.md#entire-crate-is-a-published-public-api)
+**Commit:** ac261483db640e5564fb661c8b70ea57e2519422
+**Author:** Codex
+
+Set `publish = false` in the package manifest, encoding Receipts as a binary product whose library target exists for integration testing rather than as a crates.io library contract. Cargo metadata now reports an empty publication allowlist, so the internal module surface cannot be published accidentally.
+
+The existing path-install workflow remains unchanged, and the complete repository gate passes with the non-publishable package posture.
+
+---
+
+## 2026-08-10 — Type coordinate domains and publish character columns
+
+**Disposition:** fixed
+**Addresses:** [coordinate-primitives-are-interchangeable-usize](README.md#coordinate-primitives-are-interchangeable-usize), [byte-offset-published-as-a-markdown-column](README.md#byte-offset-published-as-a-markdown-column)
+**Commit:** 0d55ae5a5186144d182422e6a273bf45801a4719
+**Author:** Codex
+
+Introduced transparent `Line`, `Column`, `Page`, `ClaimIndex`, and `LocatorIndex` types throughout evidence, review, proposal, CLI, validation, PDF extraction, and OCR cache boundaries. Spatial constructors and deserializers reject zero; claim and locator indices retain their documented zero-based contract. Transparent serialization preserves the existing numeric YAML and JSON shapes while preventing cross-domain swaps at compile time.
+
+Markdown columns now count Unicode scalar values from the start of the line instead of UTF-8 bytes. The README states those semantics, and regressions pin non-ASCII table coordinates, zero-coordinate rejection during decoding, and the unchanged evidence workflow.
+
+---
+
+## 2026-08-10 — Reuse evidence locators in proposals
+
+**Disposition:** fixed
+**Addresses:** [propose-duplicates-locator-types](README.md#propose-duplicates-locator-types)
+**Commit:** 1097b108902cde525c204d8dbcb60f87d8e97731
+**Author:** Codex
+
+Removed the field-for-field `MarkdownMatch` and `PdfMatch` copies. Proposal candidates now store the canonical `MarkdownLocator` and `PdfLocator` types directly, keeping proposal output structurally tied to the evidence schema.
+
+The proposal regression constructs an accepted evidence `Locator` from a candidate without field conversion, and the existing CLI contract tests confirm the serialized proposal shape remains compatible.
