@@ -2,12 +2,12 @@
 audit: 2026-08-10-20-full-repo
 last_updated: 2026-08-10
 status:
-  fixed: 24
+  fixed: 27
   mitigated: 0
   accepted: 0
   disputed: 0
   deferred: 0
-  open: 24
+  open: 21
 ---
 
 # Actions Taken: Full repository — Rust source (src/, tests/), dependencies, configuration (.config/, justfile, Cargo.toml, deny.toml), and documented behavior (README.md, receipts.yaml)
@@ -286,3 +286,42 @@ Markdown columns now count Unicode scalar values from the start of the line inst
 Removed the field-for-field `MarkdownMatch` and `PdfMatch` copies. Proposal candidates now store the canonical `MarkdownLocator` and `PdfLocator` types directly, keeping proposal output structurally tied to the evidence schema.
 
 The proposal regression constructs an accepted evidence `Locator` from a candidate without field conversion, and the existing CLI contract tests confirm the serialized proposal shape remains compatible.
+
+---
+
+## 2026-08-10 — Render domain enums with schema spellings
+
+**Disposition:** fixed
+**Addresses:** [debug-formatting-leaks-into-user-facing-messages](README.md#debug-formatting-leaks-into-user-facing-messages)
+**Commit:** 460ea77ba37a6fec30625a3821ad8e6884193366
+**Author:** Codex
+
+Implemented `Display` for `UnitKind`, `PdfBackend`, and `Verdict`, with each implementation delegating to the same stable spelling used by serialization. Validation, unit-resolution, and locator diagnostics now name accepted schema values such as `paragraph` and `unsupported` instead of Rust variant names.
+
+Focused regressions assert the actionable schema spellings in Markdown and review diagnostics, and Clippy passes with every user-facing enum site using the stable display contract.
+
+---
+
+## 2026-08-10 — Require verified PDF matches in proposals
+
+**Disposition:** fixed
+**Addresses:** [candidate-pdf-option-is-never-none](README.md#candidate-pdf-option-is-never-none)
+**Commit:** c93d4566205b6391391e13b6c8b3f5ec636dfd01
+**Author:** Codex
+
+Changed `Candidate.pdf` from `Option<PdfLocator>` to `PdfLocator`, matching the proposal generator's invariant that a candidate is emitted only after a unique native PDF page is verified. The serialized `pdf` object remains unchanged.
+
+Removed the unreachable human-output fallback and optional acceptance-command guard. Proposal and CLI regressions now access the PDF locator directly.
+
+---
+
+## 2026-08-10 — Support typed report decoding
+
+**Disposition:** fixed
+**Addresses:** [report-types-are-write-only](README.md#report-types-are-write-only)
+**Commit:** 5198fe99856eff95c52bb9b042e18ba9becd2f34
+**Author:** Codex
+
+Added `Deserialize` and comparison support across proposal reports, validation reports, evidence issues, severity values, locators, and PDF bounding boxes. Report producers and consumers can now share the same public types instead of falling back to untyped JSON values.
+
+The CLI proposal regression decodes the command envelope into `ProposalReport`, asserts through typed fields, and verifies a serialize-deserialize round trip with `PartialEq`. The complete repository gate passes 199 tests.
