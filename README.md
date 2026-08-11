@@ -151,7 +151,13 @@ triggers OCR fallback.
 `locate --format json` also reports the bounding box of the matched native-text
 lines or OCR words, and mean OCR confidence when the backend provides them. The
 default YAML-ready output keeps those diagnostics in a comment so they are not
-persisted in the strict evidence contract.
+persisted in the strict evidence contract. If a backend returns matching text
+without coordinates, the diagnostic says `no geometry available for this
+backend` instead of silently omitting the reason.
+
+MuPDF structured-text output must contain the documented page and block
+containers, and every text block must contain its line list. Image-only blocks
+remain valid so native misses can proceed to OCR fallback.
 
 `--source NAME` selects which named source pair to resolve against. Defaults to
 `default`.

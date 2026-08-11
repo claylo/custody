@@ -3,7 +3,7 @@ use std::{
     process::{Command, Output},
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use serde::Deserialize;
 
 use super::Executable;
@@ -103,28 +103,29 @@ impl Mutool {
 
 /// Parse `MuPDF`'s `stext.json` output without repairing token fragmentation.
 pub fn parse_stext_json(source: &str) -> Result<Vec<ExtractedPage>> {
-    let document: StextDocument =
-        serde_json::from_str(source).context("failed to parse MuPDF structured-text JSON")?;
+    let document: StextDocument = serde_json::from_str(source)
+        .map_err(|error| anyhow!("failed to parse MuPDF structured-text JSON: {error}"))?;
     if document.pages.is_empty() {
         bail!("MuPDF structured-text JSON contains no pages");
     }
 
-    Ok(document
+    document
         .pages
         .into_iter()
         .enumerate()
-        .map(|(index, page)| {
-            let lines = page
-                .blocks
-                .into_iter()
-                .flat_map(|block| block.lines)
-                .collect::<Vec<_>>();
+        .map(|(index, page)| -> Result<ExtractedPage> {
+            let mut lines = Vec::new();
+            for block in page.blocks {
+                if block.kind == "text" {
+                    lines.extend(block.lines.context("MuPDF text block is missing lines")?);
+                }
+            }
             let text = lines
                 .iter()
                 .map(|line| line.text.as_str())
                 .collect::<Vec<_>>()
                 .join(" ");
-            ExtractedPage {
+            Ok(ExtractedPage {
                 page: index + 1,
                 text: normalize(&text),
                 spans: lines
@@ -135,9 +136,9 @@ pub fn parse_stext_json(source: &str) -> Result<Vec<ExtractedPage>> {
                     })
                     .collect(),
                 mean_confidence: None,
-            }
+            })
         })
-        .collect())
+        .collect()
 }
 
 fn run(command: &mut Command, label: &str) -> Result<Output> {
@@ -155,20 +156,19 @@ fn run(command: &mut Command, label: &str) -> Result<Output> {
 
 #[derive(Debug, Deserialize)]
 struct StextDocument {
-    #[serde(default)]
     pages: Vec<StextPage>,
 }
 
 #[derive(Debug, Deserialize)]
 struct StextPage {
-    #[serde(default)]
     blocks: Vec<StextBlock>,
 }
 
 #[derive(Debug, Deserialize)]
 struct StextBlock {
-    #[serde(default)]
-    lines: Vec<StextLine>,
+    #[serde(rename = "type")]
+    kind: String,
+    lines: Option<Vec<StextLine>>,
 }
 
 #[derive(Debug, Deserialize)]

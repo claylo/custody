@@ -38,3 +38,38 @@ fn rejects_output_without_pages() {
 
     assert!(error.to_string().contains("pages"));
 }
+
+#[test]
+fn rejects_pages_without_blocks() {
+    let error =
+        parse_stext_json(r#"{"pages":[{"groups":[]}]}"#).expect_err("the blocks field is required");
+
+    assert!(error.to_string().contains("blocks"));
+}
+
+#[test]
+fn rejects_blocks_without_lines() {
+    let error = parse_stext_json(r#"{"pages":[{"blocks":[{"type":"text","spans":[]}]}]}"#)
+        .expect_err("the lines field is required");
+
+    assert!(error.to_string().contains("lines"));
+}
+
+#[test]
+fn preserves_non_text_blocks_for_ocr_fallback() {
+    let pages = parse_stext_json(r#"{"pages":[{"blocks":[{"type":"image"}]}]}"#)
+        .expect("image-only pages remain valid native extraction results");
+
+    assert!(pages[0].text.is_empty());
+    assert!(pages[0].spans.is_empty());
+}
+
+#[test]
+fn preserves_lines_without_geometry() {
+    let pages =
+        parse_stext_json(r#"{"pages":[{"blocks":[{"type":"text","lines":[{"text":"plain"}]}]}]}"#)
+            .expect("bbox remains optional");
+
+    assert_eq!(pages[0].text, "plain");
+    assert_eq!(pages[0].spans[0].bbox, None);
+}

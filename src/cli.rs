@@ -163,6 +163,8 @@ struct PdfMatchDiagnostic {
     #[serde(skip_serializing_if = "Option::is_none")]
     bbox: Option<PdfBbox>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    geometry_note: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     mean_confidence: Option<f64>,
 }
 
@@ -272,7 +274,7 @@ fn schema_metadata() -> SchemaMetadata {
                 )
                 .output_field(
                     OutputField::new("pdf_match", "object").description(
-                        "PDF match diagnostic: {page, backend, bbox?, mean_confidence?}",
+                        "PDF match diagnostic: {page, backend, bbox?, geometry_note?, mean_confidence?}",
                     ),
                 )
                 .example(CommandExample::new([
@@ -777,6 +779,9 @@ fn locate(corpus: &Corpus, tools: &PdfTools, args: &LocateArgs, json: bool) -> R
             page,
             backend,
             bbox,
+            geometry_note: bbox
+                .is_none()
+                .then_some("no geometry available for this backend"),
             mean_confidence,
         }),
     };
@@ -1330,5 +1335,24 @@ mod tests {
         assert_eq!(cache_read_policy(true, false), CacheReadPolicy::WriteOnly);
         assert_eq!(cache_read_policy(false, false), CacheReadPolicy::Trusted);
         assert_eq!(cache_read_policy(true, true), CacheReadPolicy::Trusted);
+    }
+
+    #[test]
+    fn missing_pdf_geometry_is_explicit_in_diagnostics() {
+        let diagnostic = PdfMatchDiagnostic {
+            page: 1,
+            backend: PdfBackend::MutoolNative,
+            bbox: None,
+            geometry_note: Some("no geometry available for this backend"),
+            mean_confidence: None,
+        };
+
+        let value = serde_json::to_value(diagnostic).unwrap();
+
+        assert_eq!(
+            value["geometry_note"],
+            "no geometry available for this backend"
+        );
+        assert!(value.get("bbox").is_none());
     }
 }
