@@ -1,0 +1,346 @@
+meta:
+  project: receipts
+  commit: b78d869585b48532c90155d6f70b9486687aef54
+  timestamp: 2026-08-10T20:26:06-04:00
+  scope: full working tree at b78d869
+structure:
+  root: /Users/clay/source/claylo/receipts
+  total_files: 72
+  total_lines: 15817
+  languages:
+    - language: HTML
+      files: 1
+      lines: 1079
+      percentage: 6.82
+    - language: JSON
+      files: 2
+      lines: 41
+      percentage: 0.26
+    - language: Just
+      files: 1
+      lines: 70
+      percentage: 0.44
+    - language: Markdown
+      files: 11
+      lines: 4277
+      percentage: 27.04
+    - language: Rust
+      files: 32
+      lines: 8382
+      percentage: 52.99
+    - language: SVG
+      files: 20
+      lines: 280
+      percentage: 1.77
+    - language: TOML
+      files: 2
+      lines: 38
+      percentage: 0.24
+    - language: YAML
+      files: 3
+      lines: 1650
+      percentage: 10.43
+  modules:
+    - name: receipts
+      path: /Users/clay/source/claylo/receipts
+      files: 0
+      lines: 0
+dependencies:
+  manifest: /Users/clay/source/claylo/receipts/Cargo.toml
+  items:
+    - name: anyhow
+      version: ^1.0
+      kind: direct
+    - name: clap
+      version: ^4.6
+      kind: direct
+    - name: directories
+      version: ^6.0
+      kind: direct
+    - name: librebar
+      version: =0.6.0
+      kind: direct
+    - name: pulldown-cmark
+      version: ^0.13
+      kind: direct
+    - name: serde
+      version: ^1.0
+      kind: direct
+    - name: serde_json
+      version: ^1.0
+      kind: direct
+    - name: sha2
+      version: ^0.11
+      kind: direct
+    - name: tempfile
+      version: ^3.27
+      kind: dev
+churn:
+  period: last 12 months
+  hotspots:
+    - path: src/lib.rs
+      commits: 6
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 6
+    - path: tests/cli.rs
+      commits: 3
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 3
+    - path: src/validate.rs
+      commits: 3
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 3
+    - path: src/pdf/mod.rs
+      commits: 3
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 3
+    - path: src/evidence.rs
+      commits: 3
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 3
+    - path: src/config.rs
+      commits: 3
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 3
+    - path: src/cli.rs
+      commits: 3
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 3
+    - path: README.md
+      commits: 3
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 3
+    - path: tests/validate.rs
+      commits: 2
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 2
+    - path: tests/tesseract_cache.rs
+      commits: 2
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 2
+    - path: tests/mutool.rs
+      commits: 2
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 2
+    - path: tests/fixtures/tesseract-rotated-table.tsv
+      commits: 2
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 2
+    - path: tests/evidence.rs
+      commits: 2
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 2
+    - path: src/pdf/tesseract.rs
+      commits: 2
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 2
+    - path: src/pdf/mutool.rs
+      commits: 2
+      authors: 1
+      last_touched: 2026-07-30
+      monthly_commits:
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 0
+        - 2
+  recent_activity:
+    total_commits: 57
+    active_authors: 1
+    files_changed: 91
+testing:
+  runner: just
+  command: just test
+  sources:
+    - .config/scrat.toml
+  notes: "`.config/nextest.toml` is present — the wrapper command likely invokes `cargo nextest run`.
+    Do not invoke `cargo test` directly: env-mutating tests assume nextest process isolation."
