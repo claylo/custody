@@ -193,9 +193,14 @@ impl Corpus {
     }
 
     /// Source names this corpus declares templates for.
+    pub fn source_names(&self) -> impl Iterator<Item = &str> + '_ {
+        self.layout.sources.keys().map(String::as_str)
+    }
+
+    /// Whether this corpus declares templates for `name`.
     #[must_use]
-    pub fn source_names(&self) -> Vec<String> {
-        self.layout.sources.keys().cloned().collect()
+    pub fn declares_source(&self, name: &str) -> bool {
+        self.layout.sources.contains_key(name)
     }
 
     pub fn markdown_candidates(&self, id: &str) -> Result<Vec<PathBuf>> {

@@ -221,7 +221,9 @@ fn desugars_bare_corpus_layout_into_sources_default() {
     let corpus = Corpus::discover_from(dir.path(), None).unwrap();
     let root = corpus.root().to_path_buf();
 
-    assert_eq!(corpus.source_names(), vec!["default"]);
+    assert_eq!(corpus.source_names().collect::<Vec<_>>(), vec!["default"]);
+    assert!(corpus.declares_source("default"));
+    assert!(!corpus.declares_source("supplement"));
     assert_eq!(
         corpus.markdown_candidates("smith-2019").unwrap(),
         vec![root.join("docs/smith-2019.md")]
@@ -238,8 +240,7 @@ fn parses_explicit_corpus_sources() {
     write_config(dir.path(), TWO_SOURCE_CONFIG);
     let corpus = Corpus::discover_from(dir.path(), None).unwrap();
 
-    let mut sources = corpus.source_names();
-    sources.sort();
+    let sources = corpus.source_names().collect::<Vec<_>>();
     assert_eq!(sources, vec!["default", "supplement"]);
 }
 

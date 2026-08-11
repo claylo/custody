@@ -65,13 +65,12 @@ pub fn validate_document(
         };
     };
 
-    let configured = corpus.source_names();
     let mut source_units: BTreeMap<&str, IndexedMarkdown> = BTreeMap::new();
     let mut source_pdf_path: BTreeMap<&str, PathBuf> = BTreeMap::new();
     let mut source_pdf_sha256: BTreeMap<&str, Option<String>> = BTreeMap::new();
 
     for (source_name, pair) in &evidence.sources {
-        if !configured.iter().any(|name| name == source_name) {
+        if !corpus.declares_source(source_name) {
             issues.push(issue(
                 issue_code::UNKNOWN_SOURCE_TEMPLATE,
                 Severity::Error,

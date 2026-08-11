@@ -121,17 +121,17 @@ pub fn propose_document(
         .unwrap_or_default();
 
     let mut prepared_spans = Vec::new();
-    let mut source_pages: BTreeMap<String, HashMap<Page, String>> = BTreeMap::new();
+    let mut source_pages: BTreeMap<&str, HashMap<Page, String>> = BTreeMap::new();
 
     for source_name in corpus.source_names() {
-        let markdown_candidates = corpus.markdown_candidates_for(&summary.id, &source_name)?;
+        let markdown_candidates = corpus.markdown_candidates_for(&summary.id, source_name)?;
         if let Some(path) = markdown_candidates.iter().find(|path| path.is_file())
             && let Ok(markdown) = corpus.read_contained_text(path)
         {
-            prepared_spans.extend(prepare_spans(&source_name, &parse_units(&markdown)));
+            prepared_spans.extend(prepare_spans(source_name, &parse_units(&markdown)));
         }
 
-        let pdf_path = corpus.pdf_path_for(&summary.id, &source_name)?;
+        let pdf_path = corpus.pdf_path_for(&summary.id, source_name)?;
         if pdf_path.is_file()
             && let Ok(pages) = provider.native_pages(&pdf_path, None)
         {
@@ -178,7 +178,7 @@ pub fn propose_document(
                 }
                 verification_attempts += 1;
                 let verified = source_pages
-                    .get(&span.source)
+                    .get(span.source.as_str())
                     .and_then(|pages| verify_pdf(pages, &span.exact));
                 pdf_verification
                     .entry(span.source.clone())
