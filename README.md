@@ -207,7 +207,9 @@ stable ordering. `propose` never writes to any file.
 
 `--candidates N` (default 3) limits output per claim. Human-readable output is
 commented YAML safe to paste and edit, with a suggested `receipts locate`
-command to commit the top candidate.
+command to commit the top candidate. PDF verification examines at most `8 × N`
+previously unseen spans per claim and reuses the result when another claim
+scores the same source text.
 
 JSON output always uses `{"summaries": [...]}`, including targeted runs and
 empty corpora, so consumers do not need a count-dependent parser.

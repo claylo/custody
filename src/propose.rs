@@ -55,6 +55,9 @@ pub struct CoverageScore {
     pub required: usize,
 }
 
+/// Maximum unique PDF scans spent for each requested accepted candidate.
+const PDF_VERIFICATION_ATTEMPTS_PER_CANDIDATE: usize = 8;
+
 /// Split text on terminal punctuation followed by whitespace.
 ///
 /// Deliberately naive: `et al.` and `Fig. 3` split where a reader would not.
@@ -143,6 +146,7 @@ pub fn propose_document(
     }
 
     let mut claims = Vec::new();
+    let mut pdf_verification: HashMap<String, HashMap<String, Option<Page>>> = HashMap::new();
     for (index, claim_text) in summary.claims.iter().enumerate() {
         let index = ClaimIndex::new(index);
         if !all_claims && settled.contains(&index) {
@@ -154,13 +158,35 @@ pub fn propose_document(
         rank_scored_candidates(&mut scored_candidates);
 
         let mut candidates = Vec::new();
+        let mut verification_attempts = 0_usize;
+        let verification_budget =
+            max_candidates.saturating_mul(PDF_VERIFICATION_ATTEMPTS_PER_CANDIDATE);
         for scored in scored_candidates {
             if candidates.len() >= max_candidates {
                 break;
             }
             let span = scored.span;
-            let pages = source_pages.get(&span.source);
-            let Some(page) = pages.and_then(|pages| verify_pdf(pages, &span.exact)) else {
+            let cached = pdf_verification
+                .get(&span.source)
+                .and_then(|source| source.get(&span.exact))
+                .copied();
+            let page = if let Some(cached) = cached {
+                cached
+            } else {
+                if verification_attempts >= verification_budget {
+                    break;
+                }
+                verification_attempts += 1;
+                let verified = source_pages
+                    .get(&span.source)
+                    .and_then(|pages| verify_pdf(pages, &span.exact));
+                pdf_verification
+                    .entry(span.source.clone())
+                    .or_default()
+                    .insert(span.exact.clone(), verified);
+                verified
+            };
+            let Some(page) = page else {
                 continue;
             };
             candidates.push(Candidate {

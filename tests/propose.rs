@@ -165,6 +165,29 @@ fn candidates_absent_from_the_pdf_are_not_offered() {
 }
 
 #[test]
+fn pdf_verification_stops_at_the_attempt_budget() {
+    let markdown = (1..=9)
+        .map(|index| format!("42 miss {index}.\n\n"))
+        .chain(std::iter::once("42 verified evidence.\n".to_owned()))
+        .collect::<String>();
+    let fixture = Fixture::new(&markdown);
+
+    let report = propose_document(
+        &fixture.corpus,
+        &summary(&["The result was 42."]),
+        &FakePdf {
+            pages: vec![page(1, "42 verified evidence.")],
+        },
+        1,
+        false,
+    )
+    .unwrap();
+
+    assert!(report.claims[0].candidates.is_empty());
+    assert_eq!(report.claims[0].uncovered_tokens, ["42"]);
+}
+
+#[test]
 fn a_span_on_two_pages_is_too_ambiguous_to_offer() {
     let markdown = "The rate was 67.5% in the control group.\n";
     let fixture = Fixture::new(markdown);
