@@ -9,6 +9,9 @@ default:
 clippy:
   cargo +{{toolchain}} clippy --all-targets --all-features --message-format=short -- -D warnings
 
+msrv-check:
+  cargo +{{msrv}} check --all-targets --all-features
+
 fix:
   echo "Using toolchain {{toolchain}}"
   cargo +{{toolchain}} clippy --fix --allow-dirty --allow-staged -- -W clippy::all
@@ -24,6 +27,10 @@ test:
 fmt:
     cargo fmt --all -- --config-path .config/rustfmt.toml
 
+# Verify formatting without modifying the worktree.
+fmt-check:
+    cargo fmt --all --check -- --config-path .config/rustfmt.toml
+
 # Probe configuration and external PDF tools.
 doctor:
     cargo run --locked -- doctor
@@ -37,9 +44,9 @@ doc-test:
 doc:
   cargo doc --all-features --no-deps
 
-check: fmt clippy deny test doc-test doc
+check: fmt-check msrv-check clippy deny test doc-test doc
 
-ci: check
+ci: fmt-check msrv-check clippy deny test-ci doc-test doc
 
 # Check for outdated dependencies (root only, no transitive noise)
 outdated:
@@ -67,4 +74,3 @@ upgrade-breaking:
 # See what WOULD update without doing it
 check-updates:
     cargo update --dry-run
-
