@@ -99,6 +99,29 @@ fn default_audit_reports_missing_without_failing() {
     assert!(stdout(&output).contains("missing: 1"));
 }
 
+#[test]
+fn process_environment_cannot_override_project_configuration() {
+    let corpus = fixture_corpus();
+    fs::write(
+        corpus.path().join("receipts.yaml"),
+        concat!(
+            "corpus:\n  summaries: \"summaries/{id}.yaml\"\n",
+            "cache:\n  root: \".cache/pdf-text\"\n",
+        ),
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_receipts"))
+        .arg("-C")
+        .arg(corpus.path())
+        .args(["--format", "text", "audit"])
+        .env("RECEIPTS_CORPUS__SUMMARIES", "other/{id}.yaml")
+        .output()
+        .expect("receipts executes");
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stdout(&output).contains("missing: 1"));
+}
+
 #[cfg(unix)]
 #[test]
 fn audit_skips_symlinked_summary_entries() {

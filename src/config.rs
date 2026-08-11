@@ -11,7 +11,7 @@ use librebar::camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-/// Merged configuration from defaults, user config, and project config.
+/// Configuration merged from defaults and repository-scoped project or explicit files.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
@@ -196,7 +196,10 @@ pub struct Discovered {
 /// file; else the nearest `.git` boundary; else `start`.
 pub fn load(start: &Path, explicit: Option<&Path>) -> Result<Discovered> {
     let search = to_utf8(start)?;
-    let mut loader = librebar::config::ConfigLoader::new("receipts").with_project_search(&search);
+    let mut loader = librebar::config::ConfigLoader::new("receipts")
+        .with_project_search(&search)
+        .with_user_config(false)
+        .without_environment();
     if let Some(path) = explicit {
         loader = loader.with_file(to_utf8(path)?);
     }

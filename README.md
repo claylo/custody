@@ -114,6 +114,11 @@ These are real defaults: a corpus laid out as `summaries/`, `md/`, and `pdfs/`
 inside a Git repository needs no config file at all. Use `--config FILE` to name
 one explicitly.
 
+Configuration is repository-scoped and deterministic: user-level config files
+and `RECEIPTS_*` environment variables are intentionally ignored. Only built-in
+defaults, project discovery, and an explicit `--config` file participate; there
+are no hidden machine-wide layers.
+
 ### Coverage
 
 `coverage.tokens` controls whether material-token checking is enforced:
