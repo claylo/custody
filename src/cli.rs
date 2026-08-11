@@ -15,8 +15,8 @@ use crate::{
     coordinate::{ClaimIndex, Column, Line, Page},
     corpus::Corpus,
     evidence::{
-        ClaimEvidence, DEFAULT_SOURCE, IssueCode, Locator, MarkdownLocator, PdfBackend, PdfLocator,
-        Severity, SourceRecord, issue_code, parse_summary,
+        ClaimEvidence, DEFAULT_SOURCE, EvidenceIssue, IssueCode, Locator, MarkdownLocator,
+        PdfBackend, PdfLocator, Severity, SourceRecord, issue_code, parse_summary,
     },
     hash::sha256_file,
     markdown::{exact_count, parse_units},
@@ -146,6 +146,19 @@ enum AuditStatus {
     Valid,
     Missing,
     Invalid,
+}
+
+enum SummaryOutcome {
+    ParseFailed(EvidenceIssue),
+    IdMismatch(EvidenceIssue),
+    NoEvidence,
+    Validated(ValidationReport),
+}
+
+#[derive(Clone, Copy)]
+enum MissingEvidencePolicy {
+    Validate,
+    Skip,
 }
 
 #[derive(Debug, Serialize)]
@@ -678,6 +691,34 @@ fn locate_pdf(
     }
 }
 
+fn evaluate_summary(
+    corpus: &Corpus,
+    tools: &PdfTools,
+    id: &str,
+    require_review: bool,
+    missing_evidence: MissingEvidencePolicy,
+) -> SummaryOutcome {
+    let summary = match read_summary(corpus, id) {
+        Ok(summary) => summary,
+        Err(error) => {
+            return SummaryOutcome::ParseFailed(error_issue(
+                issue_code::SUMMARY_PARSE_FAILED,
+                error.to_string(),
+            ));
+        }
+    };
+    if summary.id != id {
+        return SummaryOutcome::IdMismatch(error_issue(
+            issue_code::ID_MISMATCH,
+            format!("summary ID {:?} does not match filename", summary.id),
+        ));
+    }
+    if summary.evidence.is_none() && matches!(missing_evidence, MissingEvidencePolicy::Skip) {
+        return SummaryOutcome::NoEvidence;
+    }
+    SummaryOutcome::Validated(validate_document(corpus, &summary, tools, require_review))
+}
+
 fn check(
     corpus: &Corpus,
     tools: &PdfTools,
@@ -699,38 +740,34 @@ fn check(
         summaries: Vec::new(),
     };
     for id in ids {
-        let summary = match read_summary(corpus, &id) {
-            Ok(summary) => summary,
-            Err(error) => {
+        match evaluate_summary(
+            corpus,
+            tools,
+            &id,
+            require_review,
+            if targeted {
+                MissingEvidencePolicy::Validate
+            } else {
+                MissingEvidencePolicy::Skip
+            },
+        ) {
+            SummaryOutcome::ParseFailed(issue) | SummaryOutcome::IdMismatch(issue) => {
                 report.invalid += 1;
-                report.summaries.push(error_report(
+                report.summaries.push(ValidationReport {
                     id,
-                    issue_code::SUMMARY_PARSE_FAILED,
-                    error.to_string(),
-                ));
-                continue;
+                    issues: vec![issue],
+                });
             }
-        };
-        if summary.id != id {
-            report.invalid += 1;
-            report.summaries.push(error_report(
-                id,
-                issue_code::ID_MISMATCH,
-                format!("summary ID {:?} does not match filename", summary.id),
-            ));
-            continue;
+            SummaryOutcome::NoEvidence => report.skipped += 1,
+            SummaryOutcome::Validated(validation) => {
+                if validation.is_valid() {
+                    report.valid += 1;
+                } else {
+                    report.invalid += 1;
+                }
+                report.summaries.push(validation);
+            }
         }
-        if summary.evidence.is_none() && !targeted {
-            report.skipped += 1;
-            continue;
-        }
-        let validation = validate_document(corpus, &summary, tools, require_review);
-        if validation.is_valid() {
-            report.valid += 1;
-        } else {
-            report.invalid += 1;
-        }
-        report.summaries.push(validation);
     }
     print_check_report(&report, json, quiet)?;
     if report.invalid > 0 {
@@ -766,57 +803,45 @@ fn audit(
         ids.to_vec()
     };
     for id in ids {
-        let summary = match read_summary(corpus, &id) {
-            Ok(summary) => summary,
-            Err(error) => {
+        match evaluate_summary(
+            corpus,
+            tools,
+            &id,
+            require_review,
+            MissingEvidencePolicy::Skip,
+        ) {
+            SummaryOutcome::ParseFailed(issue) | SummaryOutcome::IdMismatch(issue) => {
                 report.invalid += 1;
                 report.summaries.push(AuditSummary {
                     id,
                     status: AuditStatus::Invalid,
-                    issues: vec![error_issue(
-                        issue_code::SUMMARY_PARSE_FAILED,
-                        error.to_string(),
-                    )],
+                    issues: vec![issue],
                 });
-                continue;
             }
-        };
-        if summary.id != id {
-            report.invalid += 1;
-            report.summaries.push(AuditSummary {
-                id,
-                status: AuditStatus::Invalid,
-                issues: vec![error_issue(
-                    issue_code::ID_MISMATCH,
-                    format!("summary ID {:?} does not match filename", summary.id),
-                )],
-            });
-            continue;
-        }
-        if summary.evidence.is_none() {
-            report.missing += 1;
-            report.summaries.push(AuditSummary {
-                id,
-                status: AuditStatus::Missing,
-                issues: Vec::new(),
-            });
-            continue;
-        }
-        let validation = validate_document(corpus, &summary, tools, require_review);
-        if validation.is_valid() {
-            report.valid += 1;
-            report.summaries.push(AuditSummary {
-                id,
-                status: AuditStatus::Valid,
-                issues: Vec::new(),
-            });
-        } else {
-            report.invalid += 1;
-            report.summaries.push(AuditSummary {
-                id,
-                status: AuditStatus::Invalid,
-                issues: validation.issues,
-            });
+            SummaryOutcome::NoEvidence => {
+                report.missing += 1;
+                report.summaries.push(AuditSummary {
+                    id,
+                    status: AuditStatus::Missing,
+                    issues: Vec::new(),
+                });
+            }
+            SummaryOutcome::Validated(validation) if validation.is_valid() => {
+                report.valid += 1;
+                report.summaries.push(AuditSummary {
+                    id,
+                    status: AuditStatus::Valid,
+                    issues: Vec::new(),
+                });
+            }
+            SummaryOutcome::Validated(validation) => {
+                report.invalid += 1;
+                report.summaries.push(AuditSummary {
+                    id,
+                    status: AuditStatus::Invalid,
+                    issues: validation.issues,
+                });
+            }
         }
     }
     if json {
@@ -828,7 +853,12 @@ fn audit(
         ))?;
     }
     if !json {
-        print_audit_issues(&report.summaries);
+        print_issues(
+            report
+                .summaries
+                .iter()
+                .map(|summary| (summary.id.as_str(), summary.issues.as_slice())),
+        );
     }
     if report.invalid > 0 || (strict && report.missing > 0) {
         bail!("evidence audit failed");
@@ -861,7 +891,10 @@ fn propose_cmd(
                     error.to_string(),
                 );
                 if !json {
-                    print_issues(std::slice::from_ref(&report));
+                    print_issues(std::iter::once((
+                        report.id.as_str(),
+                        report.issues.as_slice(),
+                    )));
                 }
                 reports.push(ProposalSummary::Failed(report));
                 continue;
@@ -875,7 +908,10 @@ fn propose_cmd(
                 format!("summary ID {:?} does not match filename", summary.id),
             );
             if !json {
-                print_issues(std::slice::from_ref(&report));
+                print_issues(std::iter::once((
+                    report.id.as_str(),
+                    report.issues.as_slice(),
+                )));
             }
             reports.push(ProposalSummary::Failed(report));
             continue;
@@ -1104,30 +1140,23 @@ fn print_check_report(report: &CheckReport, json: bool, quiet: bool) -> Result<(
             report.valid, report.skipped, report.invalid
         ))?;
     }
-    print_issues(&report.summaries);
+    print_issues(
+        report
+            .summaries
+            .iter()
+            .map(|summary| (summary.id.as_str(), summary.issues.as_slice())),
+    );
     Ok(())
 }
 
-fn print_issues(reports: &[ValidationReport]) {
-    for report in reports {
-        for issue in &report.issues {
+fn print_issues<'a>(summaries: impl IntoIterator<Item = (&'a str, &'a [EvidenceIssue])>) {
+    for (id, issues) in summaries {
+        for issue in issues {
             let prefix = match issue.severity {
                 Severity::Warning => "warning: ",
                 Severity::Error => "",
             };
-            eprintln!("{}: {prefix}{}: {}", report.id, issue.code, issue.message);
-        }
-    }
-}
-
-fn print_audit_issues(summaries: &[AuditSummary]) {
-    for summary in summaries {
-        for issue in &summary.issues {
-            let prefix = match issue.severity {
-                Severity::Warning => "warning: ",
-                Severity::Error => "",
-            };
-            eprintln!("{}: {prefix}{}: {}", summary.id, issue.code, issue.message);
+            eprintln!("{id}: {prefix}{}: {}", issue.code, issue.message);
         }
     }
 }
