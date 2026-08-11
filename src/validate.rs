@@ -53,11 +53,6 @@ impl ValidationReport {
     pub fn is_valid(&self) -> bool {
         !self.issues.iter().any(|i| i.severity == Severity::Error)
     }
-
-    #[must_use]
-    pub fn has_warnings(&self) -> bool {
-        self.issues.iter().any(|i| i.severity == Severity::Warning)
-    }
 }
 
 /// Validate a parsed summary against its canonical Markdown and PDF sources.

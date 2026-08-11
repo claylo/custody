@@ -54,24 +54,6 @@ fn canonicalize_renames_nested_evidence_keys() {
 }
 
 #[test]
-fn localize_is_the_inverse_of_canonicalize() {
-    let original = json!({
-        "id": "smith-2019",
-        "propositions": ["one"],
-        "evidence": {
-            "propositions": [
-                {"proposition": 0, "proposition_sha256": "c", "locators": []}
-            ]
-        }
-    });
-    let mut value = original.clone();
-    let terms = proposition();
-    terms.canonicalize(&mut value).unwrap();
-    terms.localize(&mut value);
-    assert_eq!(value, original);
-}
-
-#[test]
 fn canonicalize_rejects_a_document_using_both_vocabularies() {
     let mut value = json!({"claims": ["one"], "propositions": ["two"]});
     assert!(proposition().canonicalize(&mut value).is_err());

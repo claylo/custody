@@ -1,8 +1,8 @@
 //! Configurable claim vocabulary.
 //!
 //! A corpus may use any word for a claim. Input is canonicalized to `claims` at
-//! the parse boundary and localized back on output, so every internal type and
-//! every validation path speaks one vocabulary.
+//! the parse boundary so every internal type and validation path speaks one
+//! vocabulary. `locate` output is localized to the corpus vocabulary.
 
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
@@ -83,30 +83,6 @@ impl Terms {
             }
         }
         Ok(())
-    }
-
-    /// Rewrite the canonical vocabulary back to the configured one, in place.
-    pub fn localize(&self, value: &mut Value) {
-        if self.is_canonical() {
-            return;
-        }
-        if let Some(evidence) = value.get_mut("evidence") {
-            if let Some(entries) = evidence.get_mut("claims").and_then(Value::as_array_mut) {
-                for entry in entries {
-                    self.localize_entry(entry);
-                }
-            }
-            rename(evidence, "claims", &self.claims);
-        }
-        if let Some(review) = value.get_mut("review") {
-            if let Some(entries) = review.get_mut("claims").and_then(Value::as_array_mut) {
-                for entry in entries {
-                    self.localize_entry(entry);
-                }
-            }
-            rename(review, "claims", &self.claims);
-        }
-        rename(value, "claims", &self.claims);
     }
 
     /// Rewrite one claim-evidence entry to the configured vocabulary, in place.
