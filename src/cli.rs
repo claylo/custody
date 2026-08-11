@@ -1145,8 +1145,17 @@ fn summary_ids(corpus: &Corpus) -> Result<Vec<String>> {
     };
 
     let scan_dir = corpus.summaries_dir();
+    let max_depth = suffix.bytes().filter(|byte| *byte == b'/').count();
     let mut ids = Vec::new();
-    walk_summaries(&scan_dir, prefix, suffix, corpus.root(), &mut ids)?;
+    walk_summaries(
+        &scan_dir,
+        prefix,
+        suffix,
+        corpus.root(),
+        0,
+        max_depth,
+        &mut ids,
+    )?;
     ids.sort();
     ids.dedup();
     Ok(ids)
@@ -1157,6 +1166,8 @@ fn walk_summaries(
     prefix: &str,
     suffix: &str,
     root: &Path,
+    depth: usize,
+    max_depth: usize,
     ids: &mut Vec<String>,
 ) -> Result<()> {
     let entries = match fs::read_dir(dir) {
@@ -1169,9 +1180,22 @@ fn walk_summaries(
         }
     };
     for entry in entries {
-        let path = entry?.path();
-        if path.is_dir() {
-            walk_summaries(&path, prefix, suffix, root, ids)?;
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("failed to inspect {}", path.display()))?;
+        if file_type.is_symlink() {
+            continue;
+        }
+        if file_type.is_dir() {
+            if depth >= max_depth {
+                bail!(
+                    "summary discovery exceeded template depth {max_depth}: {}",
+                    path.display()
+                );
+            }
+            walk_summaries(&path, prefix, suffix, root, depth + 1, max_depth, ids)?;
         } else {
             let relative = path
                 .strip_prefix(root)

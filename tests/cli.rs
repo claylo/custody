@@ -58,6 +58,64 @@ fn default_audit_reports_missing_without_failing() {
     assert!(stdout(&output).contains("missing: 1"));
 }
 
+#[cfg(unix)]
+#[test]
+fn audit_skips_symlinked_summary_entries() {
+    use std::os::unix::fs::symlink;
+
+    let corpus = fixture_corpus();
+    symlink(
+        corpus.path().join("does-not-exist.yaml"),
+        corpus.path().join("summaries/broken.yaml"),
+    )
+    .unwrap();
+
+    let output = receipts(corpus.path(), &["audit"]);
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stdout(&output).contains("missing: 1"));
+}
+
+#[test]
+fn audit_rejects_summary_directories_deeper_than_the_template() {
+    let corpus = fixture_corpus();
+    fs::create_dir(corpus.path().join("summaries/unexpected")).unwrap();
+    fs::write(
+        corpus.path().join("summaries/unexpected/ignored.yaml"),
+        "id: ignored\nclaims: []\n",
+    )
+    .unwrap();
+
+    let output = receipts(corpus.path(), &["audit"]);
+
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("summary discovery exceeded template depth"));
+}
+
+#[test]
+fn audit_discovers_summaries_at_the_configured_template_depth() {
+    let corpus = tempfile::tempdir().unwrap();
+    fs::create_dir_all(corpus.path().join("records/missing-evidence")).unwrap();
+    fs::write(
+        corpus.path().join("receipts.yaml"),
+        concat!(
+            "corpus:\n  summaries: \"records/{id}/summary.yaml\"\n",
+            "cache:\n  root: \".cache/pdf-text\"\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        corpus.path().join("records/missing-evidence/summary.yaml"),
+        "id: missing-evidence\nclaims:\n  - A claim without evidence.\n",
+    )
+    .unwrap();
+
+    let output = receipts(corpus.path(), &["audit"]);
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stdout(&output).contains("missing: 1"));
+}
+
 #[test]
 fn strict_audit_fails_on_missing_evidence() {
     let corpus = fixture_corpus();

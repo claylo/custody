@@ -36,6 +36,8 @@ versions, the extraction profiles, and the cache root. Run it first.
 
 Layout lives in `receipts.yaml`. The directory holding that file is the corpus
 root, so the tool makes no assumptions about what else the corpus contains.
+Summary discovery skips symlinks and rejects directories deeper than the
+configured summary template can match.
 
 ```yaml
 corpus:
