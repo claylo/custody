@@ -5,7 +5,10 @@
 //! that holds them and the native PDF text, then ordered by a total comparison
 //! so the same corpus always yields the same suggestions.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap},
+    rc::Rc,
+};
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -114,7 +117,7 @@ pub fn propose_document(
         })
         .unwrap_or_default();
 
-    let mut source_units: BTreeMap<String, Vec<MarkdownUnit>> = BTreeMap::new();
+    let mut prepared_spans = Vec::new();
     let mut source_pages: BTreeMap<String, HashMap<Page, String>> = BTreeMap::new();
 
     for source_name in corpus.source_names() {
@@ -122,7 +125,7 @@ pub fn propose_document(
         if let Some(path) = markdown_candidates.iter().find(|path| path.is_file())
             && let Ok(markdown) = corpus.read_contained_text(path)
         {
-            source_units.insert(source_name.clone(), parse_units(&markdown));
+            prepared_spans.extend(prepare_spans(&source_name, &parse_units(&markdown)));
         }
 
         let pdf_path = corpus.pdf_path_for(&summary.id, &source_name)?;
@@ -147,33 +150,31 @@ pub fn propose_document(
         }
 
         let claim_tokens = tokens::extract(claim_text);
-        let mut raw_candidates = Vec::new();
-        for (source_name, units) in &source_units {
-            raw_candidates.extend(generate_candidates(source_name, units, &claim_tokens));
-        }
-        rank_raw_candidates(&mut raw_candidates);
+        let mut scored_candidates = score_spans(&prepared_spans, &claim_tokens);
+        rank_scored_candidates(&mut scored_candidates);
 
         let mut candidates = Vec::new();
-        for raw in raw_candidates {
+        for scored in scored_candidates {
             if candidates.len() >= max_candidates {
                 break;
             }
-            let pages = source_pages.get(&raw.source);
-            let Some(page) = pages.and_then(|pages| verify_pdf(pages, &raw.exact)) else {
+            let span = scored.span;
+            let pages = source_pages.get(&span.source);
+            let Some(page) = pages.and_then(|pages| verify_pdf(pages, &span.exact)) else {
                 continue;
             };
             candidates.push(Candidate {
-                source: raw.source,
-                exact: raw.exact,
+                source: span.source.clone(),
+                exact: span.exact.clone(),
                 coverage: CoverageScore {
-                    matched: raw.matched,
+                    matched: scored.matched,
                     required: claim_tokens.required.len(),
                 },
                 markdown: MarkdownLocator {
-                    line: raw.line,
-                    column: raw.column,
-                    unit: raw.unit,
-                    section: raw.section,
+                    line: span.line,
+                    column: span.column,
+                    unit: span.unit,
+                    section: span.section.as_ref().to_vec(),
                 },
                 pdf: PdfLocator {
                     page,
@@ -208,52 +209,62 @@ pub fn propose_document(
     })
 }
 
-/// A scored span before it has been checked against the PDF.
-struct RawCandidate {
+/// One claim-independent span prepared from the Markdown corpus.
+struct PreparedSpan {
     source: String,
     exact: String,
-    matched: usize,
     line: Line,
     column: Column,
     unit: UnitKind,
-    section: Vec<String>,
+    section: Rc<[String]>,
 }
 
-fn generate_candidates(
-    source: &str,
-    units: &[MarkdownUnit],
-    claim_tokens: &ExtractedTokens,
-) -> Vec<RawCandidate> {
-    let mut candidates = Vec::new();
+/// A prepared span scored for one claim without copying its corpus metadata.
+struct ScoredCandidate<'a> {
+    span: &'a PreparedSpan,
+    matched: usize,
+}
+
+fn prepare_spans(source: &str, units: &[MarkdownUnit]) -> Vec<PreparedSpan> {
+    let mut prepared = Vec::new();
 
     for unit in units {
+        let section: Rc<[String]> = Rc::from(unit.section.clone());
         for span in candidate_spans(&unit.text) {
             // A span that repeats inside its own unit can never be pinned to
             // one place in it, which is exactly what validation demands.
             if exact_count(&unit.text, &span) != 1 {
                 continue;
             }
-            let matched = claim_tokens
-                .required
-                .iter()
-                .filter(|token| covers(&span, token))
-                .count();
-            if matched == 0 {
-                continue;
-            }
-            candidates.push(RawCandidate {
+            prepared.push(PreparedSpan {
                 source: source.to_owned(),
                 exact: span,
-                matched,
                 line: unit.line,
                 column: unit.column,
                 unit: unit.kind,
-                section: unit.section.clone(),
+                section: Rc::clone(&section),
             });
         }
     }
 
-    candidates
+    prepared
+}
+
+fn score_spans<'a>(
+    spans: &'a [PreparedSpan],
+    claim_tokens: &ExtractedTokens,
+) -> Vec<ScoredCandidate<'a>> {
+    spans
+        .iter()
+        .filter_map(|span| {
+            let matched = claim_tokens
+                .required
+                .iter()
+                .filter(|token| covers(&span.exact, token))
+                .count();
+            (matched > 0).then_some(ScoredCandidate { span, matched })
+        })
+        .collect()
 }
 
 /// Every sentence, plus the whole unit when it holds more than one.
@@ -284,15 +295,15 @@ fn verify_pdf(pages: &HashMap<Page, String>, exact: &str) -> Option<Page> {
     matched.next().is_none().then_some(page)
 }
 
-/// Order raw candidates before PDF verification so only top-ranked spans are checked.
-fn rank_raw_candidates(candidates: &mut [RawCandidate]) {
+/// Order scored candidates before PDF verification so only top-ranked spans are checked.
+fn rank_scored_candidates(candidates: &mut [ScoredCandidate<'_>]) {
     candidates.sort_by(|left, right| {
         right
             .matched
             .cmp(&left.matched)
-            .then_with(|| left.exact.len().cmp(&right.exact.len()))
-            .then_with(|| left.source.cmp(&right.source))
-            .then_with(|| left.line.cmp(&right.line))
-            .then_with(|| left.column.cmp(&right.column))
+            .then_with(|| left.span.exact.len().cmp(&right.span.exact.len()))
+            .then_with(|| left.span.source.cmp(&right.span.source))
+            .then_with(|| left.span.line.cmp(&right.span.line))
+            .then_with(|| left.span.column.cmp(&right.span.column))
     });
 }
