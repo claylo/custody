@@ -145,10 +145,15 @@ fn rejects_ids_that_escape_the_corpus() {
     write_config(dir.path(), "cache:\n  root: \"c\"\n");
     let corpus = Corpus::discover_from(dir.path(), None).unwrap();
 
-    assert!(corpus.pdf_path("../escape").is_err());
-    assert!(corpus.pdf_path("Upper").is_err());
-    assert!(corpus.pdf_path("ab").is_err());
-    assert!(corpus.pdf_path("-lead").is_err());
+    for id in ["../escape", "Upper", "ab", "-lead"] {
+        let error = corpus.pdf_path(id).unwrap_err().to_string();
+        assert!(
+            error.contains(
+                "IDs must be 3+ characters of lowercase ASCII letters, digits, and interior hyphens"
+            ),
+            "{error}"
+        );
+    }
 }
 
 #[test]

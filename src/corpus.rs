@@ -294,7 +294,9 @@ fn validate_id(id: &str) -> Result<()> {
             .bytes()
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
     if !valid {
-        bail!("invalid summary ID {id:?}");
+        bail!(
+            "invalid summary ID {id:?}: IDs must be 3+ characters of lowercase ASCII letters, digits, and interior hyphens"
+        );
     }
     Ok(())
 }

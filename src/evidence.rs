@@ -188,7 +188,7 @@ define_issue_codes! {
     UNNORMALIZED_EXACT => ("unnormalized_exact", Some(1), "Locator exact text is not in normalized form"),
     INVALID_SOURCE_NAME => ("invalid_source_name", Some(1), "Source name is not a valid path component"),
     INVALID_SHA256 => ("invalid_sha256", Some(1), "SHA-256 value is not 64 lowercase hex characters"),
-    INVALID_ID => ("invalid_id", Some(1), "Summary ID is not safe for template expansion"),
+    INVALID_ID => ("invalid_id", Some(1), "Summary IDs must be 3+ characters of lowercase ASCII letters, digits, and interior hyphens"),
     INVALID_MARKDOWN_LINE => ("invalid_markdown_line", Some(1), "Markdown line coordinate is invalid"),
     INVALID_MARKDOWN_COLUMN => ("invalid_markdown_column", Some(1), "Markdown column coordinate is invalid"),
     INVALID_PDF_PAGE => ("invalid_pdf_page", Some(1), "PDF page number is invalid"),

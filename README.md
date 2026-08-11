@@ -231,6 +231,10 @@ Generates shell completions: `receipts completions zsh > _receipts`.
 
 ## Evidence contract
 
+Summary IDs must be at least three characters and contain only lowercase ASCII
+letters, digits, and interior hyphens. Hyphens cannot be the first or last
+character.
+
 ```yaml
 id: smith-2019
 claims:
