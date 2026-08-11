@@ -2,12 +2,12 @@
 audit: 2026-08-10-20-full-repo
 last_updated: 2026-08-10
 status:
-  fixed: 3
+  fixed: 4
   mitigated: 0
   accepted: 0
   disputed: 0
   deferred: 0
-  open: 45
+  open: 44
 ---
 
 # Actions Taken: Full repository — Rust source (src/, tests/), dependencies, configuration (.config/, justfile, Cargo.toml, deny.toml), and documented behavior (README.md, receipts.yaml)
@@ -52,3 +52,16 @@ Regression tests cover absolute paths, `..` traversal, and symlink escape attemp
 Moved path canonicalization, corpus containment, regular-file validation, and bounded UTF-8 reading into a shared corpus boundary. Summary and Markdown reads in `locate`, `check`, `audit`, validation, and proposal generation now use that boundary instead of opening joined paths directly.
 
 Each text input is capped at 64 MiB using both file metadata and a limited reader, covering files that grow after the initial check. CLI regressions prove that an outside-corpus summary symlink is rejected and that an oversized sparse summary fails before its content is loaded.
+
+---
+
+## 2026-08-10 — Bound summary discovery
+
+**Disposition:** fixed
+**Addresses:** [summary-walk-recurses-without-a-depth-bound](README.md#summary-walk-recurses-without-a-depth-bound)
+**Commit:** 8a8fd27a8119cfd8b0e36f035c2db7722f384bca
+**Author:** Codex
+
+Summary discovery now inspects directory-entry metadata without following symlinks and skips symlinked entries entirely. Its recursion ceiling is derived from the configured summary template, so valid nested layouts remain discoverable while directories deeper than any possible match fail with a contextual error.
+
+Regression coverage exercises a broken summary symlink, an over-depth real directory, and the supported `records/{id}/summary.yaml` layout. The README now documents the symlink and depth boundaries.
