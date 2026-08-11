@@ -9,7 +9,10 @@ use crate::{
     config::TokenSeverity,
     coordinate::{ClaimIndex, LocatorIndex, Page},
     corpus::Corpus,
-    evidence::{EvidenceIssue, IssueCode, PdfBackend, Severity, SummaryDocument, issue_code},
+    evidence::{
+        ClaimEvidence, Evidence, EvidenceIssue, IssueCode, Locator, PdfBackend, Severity,
+        SummaryDocument, issue_code,
+    },
     hash::sha256_file,
     markdown::{MarkdownUnit, UnitIndex, exact_count, parse_units, resolve_unit},
     normalize::normalize,
@@ -28,6 +31,14 @@ struct IndexedMarkdown {
     units: Vec<MarkdownUnit>,
     index: UnitIndex,
 }
+
+struct ResolvedSource {
+    markdown: Option<IndexedMarkdown>,
+    pdf_path: PathBuf,
+    pdf_sha256: Option<String>,
+}
+
+type PdfPageCache<'a> = HashMap<(&'a str, PdfBackend, Page), Result<String, String>>;
 
 impl IndexedMarkdown {
     fn parse(source: &str) -> Self {
@@ -65,9 +76,71 @@ pub fn validate_document(
         };
     };
 
-    let mut source_units: BTreeMap<&str, IndexedMarkdown> = BTreeMap::new();
-    let mut source_pdf_path: BTreeMap<&str, PathBuf> = BTreeMap::new();
-    let mut source_pdf_sha256: BTreeMap<&str, Option<String>> = BTreeMap::new();
+    let sources = resolve_sources(corpus, evidence, summary, &mut issues);
+
+    let mut pdf_pages = preload_native_pages(evidence, &sources, provider);
+    let token_severity = match corpus.coverage_config().tokens {
+        TokenSeverity::Error => Some(Severity::Error),
+        TokenSeverity::Warn => Some(Severity::Warning),
+        TokenSeverity::Off => None,
+    };
+    let weak_sections = corpus.weak_sections();
+
+    for entry in &evidence.claims {
+        let mut resolved_units = Vec::with_capacity(entry.locators.len());
+        for (locator_index, locator) in entry.locators.iter().enumerate() {
+            let locator_index = LocatorIndex::new(locator_index);
+            let (resolved_unit, locator_issues) = validate_locator_against_sources(
+                corpus,
+                provider,
+                entry.claim,
+                locator_index,
+                locator,
+                &sources,
+                &mut pdf_pages,
+            );
+            resolved_units.push(resolved_unit);
+            issues.extend(locator_issues);
+        }
+        issues.extend(check_token_coverage(entry, &summary.claims, token_severity));
+        issues.extend(check_weak_sections(entry, &resolved_units, weak_sections));
+    }
+
+    if let Some(rev) = summary.review.as_ref() {
+        issues.extend(review::validate_review(
+            rev,
+            &summary.claims,
+            summary.evidence.as_ref(),
+            require_review,
+            corpus.terms(),
+        ));
+    } else if require_review {
+        let term = &corpus.terms().claim;
+        for index in 0..summary.claims.len() {
+            let index = ClaimIndex::new(index);
+            issues.push(issue(
+                issue_code::MISSING_REVIEW,
+                Severity::Error,
+                format!("{term} {index} has no review entry"),
+                Some(index),
+                None,
+            ));
+        }
+    }
+
+    ValidationReport {
+        id: summary.id.clone(),
+        issues,
+    }
+}
+
+fn resolve_sources<'a>(
+    corpus: &Corpus,
+    evidence: &'a Evidence,
+    summary: &SummaryDocument,
+    issues: &mut Vec<EvidenceIssue>,
+) -> BTreeMap<&'a str, ResolvedSource> {
+    let mut sources = BTreeMap::new();
 
     for (source_name, pair) in &evidence.sources {
         if !corpus.declares_source(source_name) {
@@ -129,7 +202,7 @@ pub fn validate_document(
             &markdown_label,
             &pair.markdown.source,
             markdown_path,
-            &mut issues,
+            issues,
         );
         validate_source_path(
             corpus,
@@ -137,17 +210,12 @@ pub fn validate_document(
             &pdf_label,
             &pair.pdf.source,
             &pdf_path,
-            &mut issues,
+            issues,
         );
-        let markdown_is_safe = validate_resolved_source(
-            corpus,
-            source_name,
-            &markdown_label,
-            markdown_path,
-            &mut issues,
-        );
+        let markdown_is_safe =
+            validate_resolved_source(corpus, source_name, &markdown_label, markdown_path, issues);
         let pdf_is_safe =
-            validate_resolved_source(corpus, source_name, &pdf_label, &pdf_path, &mut issues);
+            validate_resolved_source(corpus, source_name, &pdf_label, &pdf_path, issues);
         // Never read a source that resolves outside the corpus.
         if !markdown_is_safe || !pdf_is_safe {
             continue;
@@ -158,34 +226,43 @@ pub fn validate_document(
             &markdown_label,
             markdown_path,
             &pair.markdown.sha256,
-            &mut issues,
+            issues,
         );
-        let pdf_sha256 = validate_file_hash(
-            source_name,
-            &pdf_label,
-            &pdf_path,
-            &pair.pdf.sha256,
-            &mut issues,
-        );
-        source_pdf_sha256.insert(source_name, pdf_sha256);
-        source_pdf_path.insert(source_name, pdf_path);
-
-        match corpus.read_contained_text(markdown_path) {
-            Ok(markdown_source) => {
-                source_units.insert(source_name, IndexedMarkdown::parse(&markdown_source));
+        let pdf_sha256 =
+            validate_file_hash(source_name, &pdf_label, &pdf_path, &pair.pdf.sha256, issues);
+        let markdown = match corpus.read_contained_text(markdown_path) {
+            Ok(markdown_source) => Some(IndexedMarkdown::parse(&markdown_source)),
+            Err(error) => {
+                issues.push(source_issue(
+                    issue_code::MARKDOWN_READ_FAILED,
+                    Severity::Error,
+                    format!("failed to read {}: {error}", markdown_path.display()),
+                    source_name,
+                    None,
+                    None,
+                ));
+                None
             }
-            Err(error) => issues.push(source_issue(
-                issue_code::MARKDOWN_READ_FAILED,
-                Severity::Error,
-                format!("failed to read {}: {error}", markdown_path.display()),
-                source_name,
-                None,
-                None,
-            )),
-        }
+        };
+        sources.insert(
+            source_name.as_str(),
+            ResolvedSource {
+                markdown,
+                pdf_path,
+                pdf_sha256,
+            },
+        );
     }
 
-    let mut pdf_pages: HashMap<(&str, PdfBackend, Page), Result<String, String>> = HashMap::new();
+    sources
+}
+
+fn preload_native_pages<'a>(
+    evidence: &'a Evidence,
+    sources: &BTreeMap<&str, ResolvedSource>,
+    provider: &impl PdfTextProvider,
+) -> PdfPageCache<'a> {
+    let mut pdf_pages = HashMap::new();
     let mut native_citations: BTreeMap<&str, BTreeSet<Page>> = BTreeMap::new();
     for locator in evidence
         .claims
@@ -202,10 +279,10 @@ pub fn validate_document(
         if cited_pages.len() < 2 {
             continue;
         }
-        let Some(pdf_path) = source_pdf_path.get(source_name) else {
+        let Some(source) = sources.get(source_name) else {
             continue;
         };
-        match provider.native_pages(pdf_path, None) {
+        match provider.native_pages(&source.pdf_path, None) {
             Ok(pages) => {
                 let mut by_page: HashMap<Page, String> = pages
                     .into_iter()
@@ -229,223 +306,206 @@ pub fn validate_document(
             }
         }
     }
-    let token_severity = match corpus.coverage_config().tokens {
-        TokenSeverity::Error => Some(Severity::Error),
-        TokenSeverity::Warn => Some(Severity::Warning),
-        TokenSeverity::Off => None,
-    };
-    let weak_sections = corpus.weak_sections();
+    pdf_pages
+}
 
-    for entry in &evidence.claims {
-        let mut resolved_units = Vec::with_capacity(entry.locators.len());
-        for (locator_index, locator) in entry.locators.iter().enumerate() {
-            let locator_index = LocatorIndex::new(locator_index);
-            let source_name = locator.source.as_str();
-
-            let resolved_unit = if let Some(markdown) = source_units.get(source_name) {
-                match resolve_unit(
-                    &markdown.units,
-                    &markdown.index,
-                    locator.markdown.unit,
-                    locator.markdown.line,
-                    locator.markdown.column,
-                ) {
-                    Ok(unit) => {
-                        match exact_count(&unit.text, &locator.exact) {
-                            1 => {
-                                if !locator.markdown.section.is_empty()
-                                    && !sections::paths_match(
-                                        &locator.markdown.section,
-                                        &unit.section,
-                                    )
-                                {
-                                    issues.push(issue(
-                                        issue_code::STALE_SECTION,
-                                        Severity::Error,
-                                        format!(
-                                            "recorded section {:?} but unit is under {:?}",
-                                            locator.markdown.section, unit.section
-                                        ),
-                                        Some(entry.claim),
-                                        Some(locator_index),
-                                    ));
-                                }
-                            }
-                            0 => issues.push(issue(
-                                issue_code::MARKDOWN_MISSING,
+fn validate_locator_against_sources<'sources, 'evidence>(
+    corpus: &Corpus,
+    provider: &impl PdfTextProvider,
+    claim: ClaimIndex,
+    locator_index: LocatorIndex,
+    locator: &'evidence Locator,
+    sources: &'sources BTreeMap<&str, ResolvedSource>,
+    pdf_pages: &mut PdfPageCache<'evidence>,
+) -> (Option<&'sources MarkdownUnit>, Vec<EvidenceIssue>) {
+    let mut issues = Vec::new();
+    let source_name = locator.source.as_str();
+    let resolved_unit = if let Some(markdown) = sources
+        .get(source_name)
+        .and_then(|source| source.markdown.as_ref())
+    {
+        match resolve_unit(
+            &markdown.units,
+            &markdown.index,
+            locator.markdown.unit,
+            locator.markdown.line,
+            locator.markdown.column,
+        ) {
+            Ok(unit) => {
+                match exact_count(&unit.text, &locator.exact) {
+                    1 => {
+                        if !locator.markdown.section.is_empty()
+                            && !sections::paths_match(&locator.markdown.section, &unit.section)
+                        {
+                            issues.push(issue(
+                                issue_code::STALE_SECTION,
                                 Severity::Error,
                                 format!(
-                                    "exact text does not occur in the recorded {} unit",
-                                    locator.markdown.unit
+                                    "recorded section {:?} but unit is under {:?}",
+                                    locator.markdown.section, unit.section
                                 ),
-                                Some(entry.claim),
+                                Some(claim),
                                 Some(locator_index),
-                            )),
-                            count => issues.push(issue(
-                                issue_code::MARKDOWN_AMBIGUOUS,
-                                Severity::Error,
-                                format!(
-                                    "exact text occurs {count} times in the recorded Markdown unit"
-                                ),
-                                Some(entry.claim),
-                                Some(locator_index),
-                            )),
+                            ));
                         }
-                        Some(unit)
                     }
-                    Err(error) => {
-                        issues.push(issue(
-                            issue_code::MARKDOWN_UNIT_MISSING,
-                            Severity::Error,
-                            error.to_string(),
-                            Some(entry.claim),
-                            Some(locator_index),
-                        ));
-                        None
-                    }
-                }
-            } else {
-                None
-            };
-            resolved_units.push(resolved_unit);
-
-            if locator.pdf.backend == PdfBackend::TesseractOcr && !corpus.ocr_config().enabled {
-                issues.push(issue(
-                    issue_code::OCR_DISABLED,
-                    Severity::Error,
-                    format!(
-                        "locator uses {} but OCR is disabled in configuration",
-                        locator.pdf.backend.as_str()
-                    ),
-                    Some(entry.claim),
-                    Some(locator_index),
-                ));
-                continue;
-            }
-
-            let Some(pdf_path) = source_pdf_path.get(source_name) else {
-                continue;
-            };
-            let key = (source_name, locator.pdf.backend, locator.pdf.page);
-            let extracted = pdf_pages.entry(key).or_insert_with(|| {
-                extract_pdf_page(
-                    provider,
-                    pdf_path,
-                    source_pdf_sha256
-                        .get(source_name)
-                        .and_then(Option::as_deref)
-                        .unwrap_or_default(),
-                    locator.pdf.backend,
-                    locator.pdf.page,
-                )
-            });
-            match extracted {
-                Ok(text) => match exact_count(text, &locator.exact) {
-                    1 => {}
                     0 => issues.push(issue(
-                        issue_code::PDF_MISSING,
+                        issue_code::MARKDOWN_MISSING,
                         Severity::Error,
                         format!(
-                            "exact text does not occur on PDF page {} through {}",
-                            locator.pdf.page,
-                            locator.pdf.backend.as_str()
+                            "exact text does not occur in the recorded {} unit",
+                            locator.markdown.unit
                         ),
-                        Some(entry.claim),
+                        Some(claim),
                         Some(locator_index),
                     )),
                     count => issues.push(issue(
-                        issue_code::PDF_AMBIGUOUS,
+                        issue_code::MARKDOWN_AMBIGUOUS,
                         Severity::Error,
-                        format!(
-                            "exact text occurs {count} times on PDF page {} through {}",
-                            locator.pdf.page,
-                            locator.pdf.backend.as_str()
-                        ),
-                        Some(entry.claim),
+                        format!("exact text occurs {count} times in the recorded Markdown unit"),
+                        Some(claim),
                         Some(locator_index),
                     )),
-                },
-                Err(error) => issues.push(issue(
-                    issue_code::PDF_EXTRACTION_FAILED,
-                    Severity::Error,
-                    error.clone(),
-                    Some(entry.claim),
-                    Some(locator_index),
-                )),
-            }
-        }
-
-        if let Some(severity) = token_severity
-            && let Some(claim_text) = summary.claims.get(entry.claim.get())
-        {
-            for token in &tokens::extract(claim_text).required {
-                let covered = entry.locators.iter().any(|locator| {
-                    if tokens::is_number_word(token) {
-                        tokens::is_covered_case_insensitive(&locator.exact, token)
-                    } else {
-                        tokens::is_covered(&locator.exact, token)
-                    }
-                });
-                if !covered {
-                    issues.push(issue(
-                        issue_code::UNCOVERED_TOKEN,
-                        severity,
-                        format!(
-                            "required token {:?} from claim {} appears in no locator",
-                            token, entry.claim
-                        ),
-                        Some(entry.claim),
-                        None,
-                    ));
                 }
+                Some(unit)
             }
-        }
-
-        if !weak_sections.is_empty() && !entry.locators.is_empty() {
-            let all_weak = resolved_units.iter().all(|unit| {
-                unit.is_some_and(|unit| sections::is_weak_section(&unit.section, weak_sections))
-            });
-            if all_weak {
+            Err(error) => {
                 issues.push(issue(
-                    issue_code::WEAK_SECTION_ONLY,
-                    Severity::Warning,
-                    format!(
-                        "every locator for claim {} is under a weak section",
-                        entry.claim
-                    ),
-                    Some(entry.claim),
-                    None,
+                    issue_code::MARKDOWN_UNIT_MISSING,
+                    Severity::Error,
+                    error.to_string(),
+                    Some(claim),
+                    Some(locator_index),
                 ));
+                None
             }
         }
+    } else {
+        None
+    };
+
+    if locator.pdf.backend == PdfBackend::TesseractOcr && !corpus.ocr_config().enabled {
+        issues.push(issue(
+            issue_code::OCR_DISABLED,
+            Severity::Error,
+            format!(
+                "locator uses {} but OCR is disabled in configuration",
+                locator.pdf.backend.as_str()
+            ),
+            Some(claim),
+            Some(locator_index),
+        ));
+        return (resolved_unit, issues);
     }
 
-    if let Some(rev) = summary.review.as_ref() {
-        issues.extend(review::validate_review(
-            rev,
-            &summary.claims,
-            summary.evidence.as_ref(),
-            require_review,
-            corpus.terms(),
-        ));
-    } else if require_review {
-        let term = &corpus.terms().claim;
-        for index in 0..summary.claims.len() {
-            let index = ClaimIndex::new(index);
-            issues.push(issue(
-                issue_code::MISSING_REVIEW,
+    let Some(source) = sources.get(source_name) else {
+        return (resolved_unit, issues);
+    };
+    let key = (source_name, locator.pdf.backend, locator.pdf.page);
+    let extracted = pdf_pages.entry(key).or_insert_with(|| {
+        extract_pdf_page(
+            provider,
+            &source.pdf_path,
+            source.pdf_sha256.as_deref().unwrap_or_default(),
+            locator.pdf.backend,
+            locator.pdf.page,
+        )
+    });
+    match extracted {
+        Ok(text) => match exact_count(text, &locator.exact) {
+            1 => {}
+            0 => issues.push(issue(
+                issue_code::PDF_MISSING,
                 Severity::Error,
-                format!("{term} {index} has no review entry"),
-                Some(index),
+                format!(
+                    "exact text does not occur on PDF page {} through {}",
+                    locator.pdf.page,
+                    locator.pdf.backend.as_str()
+                ),
+                Some(claim),
+                Some(locator_index),
+            )),
+            count => issues.push(issue(
+                issue_code::PDF_AMBIGUOUS,
+                Severity::Error,
+                format!(
+                    "exact text occurs {count} times on PDF page {} through {}",
+                    locator.pdf.page,
+                    locator.pdf.backend.as_str()
+                ),
+                Some(claim),
+                Some(locator_index),
+            )),
+        },
+        Err(error) => issues.push(issue(
+            issue_code::PDF_EXTRACTION_FAILED,
+            Severity::Error,
+            error.clone(),
+            Some(claim),
+            Some(locator_index),
+        )),
+    }
+
+    (resolved_unit, issues)
+}
+
+fn check_token_coverage(
+    entry: &ClaimEvidence,
+    claims: &[String],
+    severity: Option<Severity>,
+) -> Vec<EvidenceIssue> {
+    let (Some(severity), Some(claim_text)) = (severity, claims.get(entry.claim.get())) else {
+        return Vec::new();
+    };
+    let mut issues = Vec::new();
+    for token in &tokens::extract(claim_text).required {
+        let covered = entry.locators.iter().any(|locator| {
+            if tokens::is_number_word(token) {
+                tokens::is_covered_case_insensitive(&locator.exact, token)
+            } else {
+                tokens::is_covered(&locator.exact, token)
+            }
+        });
+        if !covered {
+            issues.push(issue(
+                issue_code::UNCOVERED_TOKEN,
+                severity,
+                format!(
+                    "required token {:?} from claim {} appears in no locator",
+                    token, entry.claim
+                ),
+                Some(entry.claim),
                 None,
             ));
         }
     }
+    issues
+}
 
-    ValidationReport {
-        id: summary.id.clone(),
-        issues,
+fn check_weak_sections(
+    entry: &ClaimEvidence,
+    resolved_units: &[Option<&MarkdownUnit>],
+    weak_sections: &[String],
+) -> Vec<EvidenceIssue> {
+    if weak_sections.is_empty() || entry.locators.is_empty() {
+        return Vec::new();
     }
+    let all_weak = resolved_units.iter().all(|unit| {
+        unit.is_some_and(|unit| sections::is_weak_section(&unit.section, weak_sections))
+    });
+    if !all_weak {
+        return Vec::new();
+    }
+    vec![issue(
+        issue_code::WEAK_SECTION_ONLY,
+        Severity::Warning,
+        format!(
+            "every locator for claim {} is under a weak section",
+            entry.claim
+        ),
+        Some(entry.claim),
+        None,
+    )]
 }
 
 fn extract_pdf_page(
