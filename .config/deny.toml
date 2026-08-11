@@ -1,5 +1,5 @@
-# Enterprise security policy configuration for bito
-# This file defines security policies for dependencies, licenses, and advisories
+# Dependency security policy for receipts.
+# This file defines security policies for dependencies, licenses, and advisories.
 
 # ==============================================================================
 # License Management - Enterprise Policy
@@ -11,35 +11,23 @@ allow = [
     # Permissive licenses (OSI approved)
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
-    "BSD-2-Clause",
     "BSD-3-Clause",
-    "BSL-1.0",      # Boost Software License
     "ISC",
     "MIT",
-    "MIT-0",        # MIT No Attribution
     "MPL-2.0",      # Mozilla Public License (weak copyleft, permissive for linking)
-    "Zlib",
 
     # Public domain dedications
-    "0BSD",         # Zero-Clause BSD
-    "CC0-1.0",      # Creative Commons Zero
     "Unlicense",
 
-   # Unicode/text processing
+    # Unicode/text processing
     "Unicode-3.0",
-
-    # Crypto libraries
-    "OpenSSL",      # Used by aws-lc-sys (via reqwest)
-
-    # Data licenses (for embedded certificate bundles)
-    "CDLA-Permissive-2.0",  # webpki-roots (Mozilla root certificates)
 ]
 
 # How to handle license detection confidence
 confidence-threshold = 0.8
 
-# Don't warn about licenses in allow list that aren't currently used
-unused-allowed-license = "allow"
+# Keep the allowlist aligned with the current dependency tree.
+unused-allowed-license = "warn"
 
 # ==============================================================================
 # Security Advisories - Vulnerability Management
