@@ -85,17 +85,32 @@ impl CacheManifest {
 /// Persistent page-level OCR cache rooted at the configured cache root.
 ///
 /// Defaults to the platform cache directory; see [`crate::config::CacheConfig`].
-/// Entries never expire: every key component is verified before reuse, so a hit
-/// is a determinism guarantee rather than only a saved subprocess.
+/// Trusted entries never expire because every key component is verified before
+/// reuse. Corpus-local entries are write-only unless the operator explicitly
+/// opts in to trusting them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CacheReadPolicy {
+    /// Reuse matching entries from this cache root.
+    Trusted,
+    /// Permit writes but treat every existing entry as a miss.
+    WriteOnly,
+}
+
 #[derive(Debug, Clone)]
 pub struct OcrCache {
     root: PathBuf,
+    read_policy: CacheReadPolicy,
 }
 
 impl OcrCache {
     #[must_use]
     pub const fn new(root: PathBuf) -> Self {
-        Self { root }
+        Self::with_read_policy(root, CacheReadPolicy::Trusted)
+    }
+
+    #[must_use]
+    pub const fn with_read_policy(root: PathBuf, read_policy: CacheReadPolicy) -> Self {
+        Self { root, read_policy }
     }
 
     #[must_use]
@@ -113,6 +128,9 @@ impl OcrCache {
     }
 
     pub fn load(&self, expected: &CacheManifest) -> Result<Option<String>> {
+        if self.read_policy == CacheReadPolicy::WriteOnly {
+            return Ok(None);
+        }
         let directory = self.entry_dir(expected);
         let manifest_path = directory.join("manifest.json");
         let tsv_path = directory.join("ocr.tsv");

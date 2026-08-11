@@ -90,6 +90,12 @@ impl Corpus {
         &self.cache_root
     }
 
+    /// Whether the configured cache is controlled by corpus content.
+    #[must_use]
+    pub fn cache_is_corpus_local(&self) -> bool {
+        self.cache_root.starts_with(&self.root)
+    }
+
     /// Path of the discovered project config file, if any.
     #[must_use]
     pub fn config_file(&self) -> Option<&Path> {

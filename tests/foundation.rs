@@ -79,6 +79,7 @@ fn resolves_default_layout_templates() {
     );
     assert_eq!(corpus.summaries_dir(), root.join("summaries"));
     assert_eq!(corpus.cache_root(), root.join(".cache/pdf-text"));
+    assert!(corpus.cache_is_corpus_local());
 }
 
 #[test]
@@ -276,6 +277,7 @@ fn resolves_the_platform_cache_root_by_default() {
 
     assert_eq!(corpus.cache_root(), config::platform_cache_root().unwrap());
     assert!(corpus.cache_root().ends_with("pdf-text"));
+    assert!(!corpus.cache_is_corpus_local());
 }
 
 #[test]

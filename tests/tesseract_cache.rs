@@ -2,7 +2,7 @@ use std::{cell::Cell, fs, path::Path};
 
 use anyhow::Result;
 use receipts::pdf::{
-    cache::{CacheManifest, OcrCache, OcrProfile, cache_key},
+    cache::{CacheManifest, CacheReadPolicy, OcrCache, OcrProfile, cache_key},
     matching_bbox,
     tesseract::{OcrEngine, PageRenderer, ocr_page, parse_orientation, parse_tsv, profile_name},
 };
@@ -68,6 +68,21 @@ fn matching_cache_manifest_reuses_tsv() {
             .entry_dir(&manifest)
             .starts_with(root.path().join("a".repeat(64)))
     );
+}
+
+#[test]
+fn write_only_cache_never_reads_stored_tsv() {
+    let root = tempfile::tempdir().unwrap();
+    let trusted = OcrCache::new(root.path().to_path_buf());
+    let manifest =
+        CacheManifest::new("f".repeat(64), 4, profile("mutool 1.28", "tesseract 5.5")).unwrap();
+    trusted.store(&manifest, "attacker-controlled TSV").unwrap();
+
+    let write_only =
+        OcrCache::with_read_policy(root.path().to_path_buf(), CacheReadPolicy::WriteOnly);
+
+    assert!(write_only.load(&manifest).unwrap().is_none());
+    assert!(write_only.entry_dir(&manifest).join("ocr.tsv").is_file());
 }
 
 #[test]

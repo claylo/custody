@@ -75,6 +75,11 @@ Every template is relative to the corpus root and must contain `{id}`. Absolute
 paths and `..` segments are rejected, so a config file cannot direct reads
 outside the corpus.
 
+A relative `cache.root` is write-only by default because corpus content is not
+trusted evidence. Pass `--trust-cache` to reuse entries from that directory only
+when you trust the checkout; the opt-in is deliberately a CLI flag, not project
+configuration.
+
 Discovery walks up from the working directory, checking `.config/receipts.yaml`,
 `.receipts.yaml`, then `receipts.yaml` in each ancestor, stopping at a `.git`
 boundary. TOML and JSON are also accepted. If nothing is found, the corpus root
@@ -327,12 +332,13 @@ and physical page. The manifest also records the applied render rotation.
 The root defaults to the platform cache directory
 (`~/Library/Caches/receipts/pdf-text` on macOS). Set `cache.root` to keep
 artifacts beside the corpus instead; a relative path resolves against the corpus
-root.
+root. Corpus-local entries are written but never read unless the operator passes
+`--trust-cache`.
 
-A manifest that disagrees with any key component is a miss rather than a stale
-hit, so entries never expire and a hit is a determinism guarantee rather than
-only a saved subprocess. The cache is never evidence authority — it can always
-be regenerated from the hashed PDF.
+A trusted manifest that disagrees with any key component is a miss rather than a
+stale hit. The cache is only a subprocess optimization: repository-controlled
+entries are inert by default, and every entry can be regenerated from the hashed
+PDF.
 
 ## Development
 

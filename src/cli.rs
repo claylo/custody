@@ -21,7 +21,7 @@ use crate::{
     markdown::{exact_count, parse_units},
     normalize::normalize,
     output::print_json,
-    pdf::{PdfBbox, PdfTextProvider, PdfTools, matching_bbox},
+    pdf::{PdfBbox, PdfTextProvider, PdfTools, cache::CacheReadPolicy, matching_bbox},
     terms::Terms,
     validate::{ValidationReport, validate_document},
 };
@@ -47,6 +47,9 @@ working directory."
 pub struct Cli {
     #[command(flatten)]
     common: librebar::cli::CommonArgs,
+    /// Read OCR entries from a cache inside the corpus root.
+    #[arg(long, global = true)]
+    trust_cache: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -183,19 +186,34 @@ pub fn run() -> Result<()> {
     let format = cli.common.output_format();
     let json = format == ResolvedOutputFormat::Json;
     let quiet = cli.common.quiet;
+    let read_policy = cache_read_policy(corpus.cache_is_corpus_local(), cli.trust_cache);
+    let tools = PdfTools::with_cache_read_policy(
+        corpus.cache_root().to_path_buf(),
+        corpus.ocr_config(),
+        read_policy,
+    );
     match cli.command {
-        Command::Doctor => doctor(&corpus, json, quiet),
-        Command::Locate(args) => locate(&corpus, &args, json),
-        Command::Check(args) => check(&corpus, &args.ids, json, quiet, args.require_review),
+        Command::Doctor => doctor(&corpus, &tools, json, quiet),
+        Command::Locate(args) => locate(&corpus, &tools, &args, json),
+        Command::Check(args) => check(&corpus, &tools, &args.ids, json, quiet, args.require_review),
         Command::Audit(args) => audit(
             &corpus,
+            &tools,
             args.strict,
             args.require_review,
             &args.ids,
             json,
             quiet,
         ),
-        Command::Propose(args) => propose_cmd(&corpus, &args, json, quiet),
+        Command::Propose(args) => propose_cmd(&corpus, &tools, &args, json, quiet),
+    }
+}
+
+const fn cache_read_policy(cache_is_corpus_local: bool, trust_cache: bool) -> CacheReadPolicy {
+    if cache_is_corpus_local && !trust_cache {
+        CacheReadPolicy::WriteOnly
+    } else {
+        CacheReadPolicy::Trusted
     }
 }
 
@@ -582,9 +600,8 @@ fn schema_metadata() -> SchemaMetadata {
         )
 }
 
-fn doctor(corpus: &Corpus, json: bool, quiet: bool) -> Result<()> {
+fn doctor(corpus: &Corpus, tools: &PdfTools, json: bool, quiet: bool) -> Result<()> {
     let ocr = corpus.ocr_config();
-    let tools = PdfTools::new(corpus.cache_root().to_path_buf(), ocr);
     let ocr_dpi = u16::try_from(ocr.dpi).unwrap_or(u16::MAX);
 
     let corpus_value = corpus.root().display().to_string();
@@ -651,7 +668,7 @@ fn doctor(corpus: &Corpus, json: bool, quiet: bool) -> Result<()> {
     Ok(())
 }
 
-fn locate(corpus: &Corpus, args: &LocateArgs, json: bool) -> Result<()> {
+fn locate(corpus: &Corpus, tools: &PdfTools, args: &LocateArgs, json: bool) -> Result<()> {
     if args.page == Some(0) || args.line == Some(0) || args.column == Some(0) {
         bail!("page, line, and column are one-based");
     }
@@ -716,9 +733,8 @@ fn locate(corpus: &Corpus, args: &LocateArgs, json: bool) -> Result<()> {
         bail!("canonical PDF is missing: {}", pdf_path.display());
     }
     let pdf_sha256 = sha256_file(&pdf_path)?;
-    let tools = PdfTools::new(corpus.cache_root().to_path_buf(), corpus.ocr_config());
     let (page, backend, bbox, mean_confidence) = locate_pdf(
-        &tools,
+        tools,
         &pdf_path,
         &pdf_sha256,
         args.page,
@@ -822,6 +838,7 @@ fn locate_pdf(
 
 fn check(
     corpus: &Corpus,
+    tools: &PdfTools,
     ids: &[String],
     json: bool,
     quiet: bool,
@@ -833,7 +850,6 @@ fn check(
     } else {
         summary_ids(corpus)?
     };
-    let tools = PdfTools::new(corpus.cache_root().to_path_buf(), corpus.ocr_config());
     let mut report = CheckReport {
         valid: 0,
         skipped: 0,
@@ -864,7 +880,7 @@ fn check(
             report.skipped += 1;
             continue;
         }
-        let validation = validate_document(corpus, &summary, &tools, require_review);
+        let validation = validate_document(corpus, &summary, tools, require_review);
         if validation.is_valid() {
             report.valid += 1;
         } else {
@@ -887,13 +903,13 @@ fn check(
 #[allow(clippy::fn_params_excessive_bools)]
 fn audit(
     corpus: &Corpus,
+    tools: &PdfTools,
     strict: bool,
     require_review: bool,
     ids: &[String],
     json: bool,
     quiet: bool,
 ) -> Result<()> {
-    let tools = PdfTools::new(corpus.cache_root().to_path_buf(), corpus.ocr_config());
     let mut report = AuditReport {
         valid: 0,
         missing: 0,
@@ -948,7 +964,7 @@ fn audit(
             });
             continue;
         }
-        let validation = validate_document(corpus, &summary, &tools, require_review);
+        let validation = validate_document(corpus, &summary, tools, require_review);
         if validation.is_valid() {
             report.valid += 1;
             report.summaries.push(AuditSummary {
@@ -982,14 +998,18 @@ fn audit(
     Ok(())
 }
 
-fn propose_cmd(corpus: &Corpus, args: &ProposeArgs, json: bool, quiet: bool) -> Result<()> {
+fn propose_cmd(
+    corpus: &Corpus,
+    tools: &PdfTools,
+    args: &ProposeArgs,
+    json: bool,
+    quiet: bool,
+) -> Result<()> {
     let ids = if args.ids.is_empty() {
         summary_ids(corpus)?
     } else {
         args.ids.clone()
     };
-    let tools = PdfTools::new(corpus.cache_root().to_path_buf(), corpus.ocr_config());
-
     let mut reports = Vec::new();
     for id in &ids {
         let summary = read_summary(corpus, id)?;
@@ -1001,7 +1021,7 @@ fn propose_cmd(corpus: &Corpus, args: &ProposeArgs, json: bool, quiet: bool) -> 
             );
         }
         let report =
-            crate::propose::propose_document(corpus, &summary, &tools, args.candidates, args.all)?;
+            crate::propose::propose_document(corpus, &summary, tools, args.candidates, args.all)?;
         if !json && !quiet {
             print_propose_human(&report, &summary, corpus.terms());
         }
@@ -1263,4 +1283,22 @@ fn print_locate_yaml(payload: &serde_json::Value, terms: &Terms) -> Result<()> {
     }
     println!("markdown: {markdown}\npdf: {pdf}\n{}: {entry}", terms.claim);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pdf::cache::CacheReadPolicy;
+
+    #[test]
+    fn corpus_local_cache_requires_explicit_cli_trust() {
+        let default = Cli::try_parse_from(["receipts", "doctor"]).unwrap();
+        let opted_in = Cli::try_parse_from(["receipts", "--trust-cache", "doctor"]).unwrap();
+
+        assert!(!default.trust_cache);
+        assert!(opted_in.trust_cache);
+        assert_eq!(cache_read_policy(true, false), CacheReadPolicy::WriteOnly);
+        assert_eq!(cache_read_policy(false, false), CacheReadPolicy::Trusted);
+        assert_eq!(cache_read_policy(true, true), CacheReadPolicy::Trusted);
+    }
 }
