@@ -206,7 +206,7 @@ fn doctor_reports_corpus_and_executables() {
     assert!(output.contains("mutool: ok"));
     assert!(output.contains("tesseract: ok"));
     assert!(output.contains("native profile: ok (mutool-native)"));
-    assert!(output.contains("OCR profile: ok (tesseract-eng-300dpi-v1)"));
+    assert!(output.contains("OCR profile: ok (tesseract-eng-300dpi-v2)"));
 }
 
 #[test]
@@ -222,9 +222,45 @@ fn doctor_reports_configured_ocr_profile() {
     assert!(output.status.success(), "{}", stderr(&output));
     let output = stdout(&output);
     assert!(
-        output.contains("OCR profile: ok (tesseract-deu-600dpi-v1)"),
+        output.contains("OCR profile: ok (tesseract-deu-600dpi-v2)"),
         "doctor should show derived profile: {output}"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn doctor_uses_and_reports_configured_external_tool_paths() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let corpus = fixture_corpus();
+    let tools = tempfile::tempdir().unwrap();
+    let mutool = tools.path().join("mutool-pinned");
+    let tesseract = tools.path().join("tesseract-pinned");
+    fs::write(&mutool, "#!/bin/sh\necho 'mutool configured'\n").unwrap();
+    fs::write(&tesseract, "#!/bin/sh\necho 'tesseract configured'\n").unwrap();
+    fs::set_permissions(&mutool, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::set_permissions(&tesseract, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(
+        corpus.path().join("receipts.yaml"),
+        format!(
+            "cache:\n  root: \".cache/pdf-text\"\npdf:\n  tools:\n    mutool: \"{}\"\n    tesseract: \"{}\"\n",
+            mutool.display(),
+            tesseract.display(),
+        ),
+    )
+    .unwrap();
+    let empty_path = tempfile::tempdir().unwrap();
+
+    let output = receipts_with_path(corpus.path(), &["doctor"], empty_path.path());
+    let stdout = stdout(&output);
+    let mutool = mutool.canonicalize().unwrap();
+    let tesseract = tesseract.canonicalize().unwrap();
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stdout.contains(&format!("mutool path: ok ({})", mutool.display())));
+    assert!(stdout.contains(&format!("tesseract path: ok ({})", tesseract.display())));
+    assert!(stdout.contains("mutool: ok (mutool configured)"));
+    assert!(stdout.contains("tesseract: ok (tesseract configured)"));
 }
 
 #[test]

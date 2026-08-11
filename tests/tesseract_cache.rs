@@ -13,7 +13,9 @@ fn profile(mutool: &str, tesseract: &str) -> OcrProfile {
         language: "eng".to_owned(),
         dpi: 300,
         page_segmentation_mode: 3,
+        mutool_executable: "/test/mutool".to_owned(),
         mutool_version: mutool.to_owned(),
+        tesseract_executable: "/test/tesseract".to_owned(),
         tesseract_version: tesseract.to_owned(),
         render_command: "mutool draw -q -r 300 [-R ROTATION] -o OUTPUT PDF PAGE".to_owned(),
         orientation_command: "tesseract IMAGE stdout -l osd --psm 0".to_owned(),
@@ -39,8 +41,8 @@ fn reconstructs_words_in_tsv_order() {
 
 #[test]
 fn profile_name_derives_from_settings() {
-    assert_eq!(profile_name("eng", 300), "tesseract-eng-300dpi-v1");
-    assert_eq!(profile_name("deu", 600), "tesseract-deu-600dpi-v1");
+    assert_eq!(profile_name("eng", 300), "tesseract-eng-300dpi-v2");
+    assert_eq!(profile_name("deu", 600), "tesseract-deu-600dpi-v2");
 }
 
 #[test]
@@ -49,6 +51,15 @@ fn cache_key_changes_with_tool_versions() {
         cache_key(&profile("mutool 1.28", "tesseract 5.5")).unwrap(),
         cache_key(&profile("mutool 1.29", "tesseract 5.5")).unwrap()
     );
+}
+
+#[test]
+fn cache_key_changes_with_tool_paths() {
+    let first = profile("mutool 1.28", "tesseract 5.5");
+    let mut second = first.clone();
+    second.mutool_executable = "/opt/alternate/mutool".to_owned();
+
+    assert_ne!(cache_key(&first).unwrap(), cache_key(&second).unwrap());
 }
 
 #[test]
@@ -134,6 +145,10 @@ fn second_ocr_request_reuses_tsv_without_rendering_or_recognition() {
         renders: Cell<usize>,
     }
     impl PageRenderer for CountingRenderer {
+        fn executable(&self) -> Result<&Path> {
+            Ok(Path::new("/test/mutool"))
+        }
+
         fn version(&self) -> Result<String> {
             Ok("mutool test".to_owned())
         }
@@ -157,6 +172,10 @@ fn second_ocr_request_reuses_tsv_without_rendering_or_recognition() {
         recognitions: Cell<usize>,
     }
     impl OcrEngine for CountingOcr {
+        fn executable(&self) -> Result<&Path> {
+            Ok(Path::new("/test/tesseract"))
+        }
+
         fn version(&self) -> Result<String> {
             Ok("tesseract test".to_owned())
         }
@@ -214,6 +233,10 @@ fn second_ocr_request_reuses_tsv_without_rendering_or_recognition() {
 fn failed_ocr_removes_temporary_page_renderings() {
     struct Renderer;
     impl PageRenderer for Renderer {
+        fn executable(&self) -> Result<&Path> {
+            Ok(Path::new("/test/mutool"))
+        }
+
         fn version(&self) -> Result<String> {
             Ok("mutool test".to_owned())
         }
@@ -233,6 +256,10 @@ fn failed_ocr_removes_temporary_page_renderings() {
 
     struct FailingOcr;
     impl OcrEngine for FailingOcr {
+        fn executable(&self) -> Result<&Path> {
+            Ok(Path::new("/test/tesseract"))
+        }
+
         fn version(&self) -> Result<String> {
             Ok("tesseract test".to_owned())
         }

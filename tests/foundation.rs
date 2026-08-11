@@ -333,6 +333,26 @@ fn rejects_invalid_page_segmentation_mode() {
 }
 
 #[test]
+fn rejects_relative_external_tool_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    write_config(
+        dir.path(),
+        concat!(
+            "cache:\n  root: \"c\"\n",
+            "pdf:\n  tools:\n    mutool: \"bin/mutool\"\n",
+        ),
+    );
+
+    let error = Corpus::discover_from(dir.path(), None).unwrap_err();
+
+    assert!(
+        error
+            .to_string()
+            .contains("pdf.tools.mutool must be an absolute path")
+    );
+}
+
+#[test]
 fn rejects_ocr_dpi_above_the_resource_ceiling() {
     let dir = tempfile::tempdir().unwrap();
     write_config(

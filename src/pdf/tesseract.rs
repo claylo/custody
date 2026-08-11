@@ -8,7 +8,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 
 use super::{
-    ExtractedPage, PdfBbox, TextSpan,
+    Executable, ExtractedPage, PdfBbox, TextSpan,
     cache::{CacheManifest, OcrCache, OcrProfile},
     mutool::Mutool,
 };
@@ -19,7 +19,7 @@ const ORIENTATION_COMMAND: &str = "tesseract IMAGE stdout -l osd --psm 0";
 /// Cache profile name for a language and render resolution.
 #[must_use]
 pub fn profile_name(lang: &str, dpi: u16) -> String {
-    format!("tesseract-{lang}-{dpi}dpi-v1")
+    format!("tesseract-{lang}-{dpi}dpi-v2")
 }
 
 fn render_command(dpi: u16) -> String {
@@ -53,7 +53,7 @@ impl ParsedTsv {
 /// Tesseract command adapter.
 #[derive(Debug, Clone)]
 pub struct Tesseract {
-    executable: String,
+    executable: Executable,
     lang: String,
     dpi: u16,
     psm: u8,
@@ -61,6 +61,7 @@ pub struct Tesseract {
 
 /// `MuPDF` behavior required by the page-level OCR pipeline.
 pub trait PageRenderer {
+    fn executable(&self) -> Result<&Path>;
     fn version(&self) -> Result<String>;
     fn render_page(
         &self,
@@ -74,6 +75,7 @@ pub trait PageRenderer {
 
 /// Tesseract behavior required by the page-level OCR pipeline.
 pub trait OcrEngine {
+    fn executable(&self) -> Result<&Path>;
     fn version(&self) -> Result<String>;
     fn rotation(&self, image: &Path) -> Result<i16>;
     fn tsv(&self, image: &Path) -> Result<String>;
@@ -85,7 +87,7 @@ pub trait OcrEngine {
 impl Default for Tesseract {
     fn default() -> Self {
         Self {
-            executable: "tesseract".to_owned(),
+            executable: Executable::resolve("tesseract", None),
             lang: "eng".to_owned(),
             dpi: 300,
             psm: 3,
@@ -96,17 +98,26 @@ impl Default for Tesseract {
 impl Tesseract {
     #[must_use]
     pub fn new(lang: String, dpi: u16, psm: u8) -> Self {
+        Self::with_executable(None, lang, dpi, psm)
+    }
+
+    #[must_use]
+    pub fn with_executable(executable: Option<&Path>, lang: String, dpi: u16, psm: u8) -> Self {
         Self {
-            executable: "tesseract".to_owned(),
+            executable: Executable::resolve("tesseract", executable),
             lang,
             dpi,
             psm,
         }
     }
 
+    pub fn executable(&self) -> Result<&Path> {
+        self.executable.path()
+    }
+
     pub fn version(&self) -> Result<String> {
         let output = run(
-            Command::new(&self.executable).arg("--version"),
+            Command::new(self.executable()?).arg("--version"),
             "Tesseract version probe",
         )?;
         Ok(String::from_utf8_lossy(&output.stdout)
@@ -119,7 +130,7 @@ impl Tesseract {
 
     fn rotation(&self, image: &Path) -> Result<i16> {
         let output = run(
-            Command::new(&self.executable)
+            Command::new(self.executable()?)
                 .arg(image)
                 .args(["stdout", "-l", "osd", "--psm", "0"]),
             "Tesseract orientation detection",
@@ -134,7 +145,7 @@ impl Tesseract {
 
     fn tsv(&self, image: &Path) -> Result<String> {
         let output = run(
-            Command::new(&self.executable).arg(image).args([
+            Command::new(self.executable()?).arg(image).args([
                 "stdout",
                 "-l",
                 &self.lang,
@@ -149,6 +160,10 @@ impl Tesseract {
 }
 
 impl PageRenderer for Mutool {
+    fn executable(&self) -> Result<&Path> {
+        Mutool::executable(self)
+    }
+
     fn version(&self) -> Result<String> {
         Mutool::version(self)
     }
@@ -166,6 +181,10 @@ impl PageRenderer for Mutool {
 }
 
 impl OcrEngine for Tesseract {
+    fn executable(&self) -> Result<&Path> {
+        Tesseract::executable(self)
+    }
+
     fn version(&self) -> Result<String> {
         Tesseract::version(self)
     }
@@ -204,7 +223,9 @@ pub fn resolve_profile(
         language: lang.to_owned(),
         dpi,
         page_segmentation_mode: psm,
+        mutool_executable: mutool.executable()?.display().to_string(),
         mutool_version: mutool.version()?,
+        tesseract_executable: tesseract.executable()?.display().to_string(),
         tesseract_version: tesseract.version()?,
         render_command: render_command(dpi),
         orientation_command: ORIENTATION_COMMAND.to_owned(),

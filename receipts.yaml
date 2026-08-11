@@ -14,6 +14,11 @@ cache:
   root: null
 
 pdf:
+  tools:
+    # null resolves the executable from PATH once at startup. Set an absolute
+    # path to pin the exact binary.
+    mutool: null
+    tesseract: null
   ocr:
     enabled: true
     dpi: 300

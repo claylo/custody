@@ -82,7 +82,19 @@ pub struct CacheConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PdfConfig {
+    pub tools: PdfToolConfig,
     pub ocr: OcrConfig,
+}
+
+/// Executables used for PDF extraction. Unset paths are resolved from `PATH`
+/// once when the PDF tools are constructed.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PdfToolConfig {
+    /// Absolute path to `mutool`.
+    pub mutool: Option<PathBuf>,
+    /// Absolute path to `tesseract`.
+    pub tesseract: Option<PathBuf>,
 }
 
 /// OCR fallback settings.
@@ -274,6 +286,8 @@ fn validate(config: &Config) -> Result<()> {
             validate_template(template)?;
         }
     }
+    validate_tool_path("mutool", config.pdf.tools.mutool.as_deref())?;
+    validate_tool_path("tesseract", config.pdf.tools.tesseract.as_deref())?;
     validated_ocr_dpi(config.pdf.ocr.dpi)?;
     if config.pdf.ocr.lang.is_empty() {
         bail!("pdf.ocr.lang must not be empty");
@@ -282,6 +296,13 @@ fn validate(config: &Config) -> Result<()> {
         bail!("pdf.ocr.page_segmentation_mode must be 0–13");
     }
     config.terms.validate()?;
+    Ok(())
+}
+
+fn validate_tool_path(name: &str, path: Option<&Path>) -> Result<()> {
+    if path.is_some_and(|path| !path.is_absolute()) {
+        bail!("pdf.tools.{name} must be an absolute path");
+    }
     Ok(())
 }
 

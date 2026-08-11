@@ -6,6 +6,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
+use super::Executable;
 use super::{ExtractedPage, PdfBbox, TextSpan};
 use crate::normalize::normalize;
 
@@ -14,25 +15,36 @@ pub const PROFILE_NAME: &str = "mutool-native";
 /// `MuPDF` command adapter.
 #[derive(Debug, Clone)]
 pub struct Mutool {
-    executable: String,
+    executable: Executable,
 }
 
 impl Default for Mutool {
     fn default() -> Self {
         Self {
-            executable: "mutool".to_owned(),
+            executable: Executable::resolve("mutool", None),
         }
     }
 }
 
 impl Mutool {
+    #[must_use]
+    pub fn with_executable(executable: Option<&Path>) -> Self {
+        Self {
+            executable: Executable::resolve("mutool", executable),
+        }
+    }
+
+    pub fn executable(&self) -> Result<&Path> {
+        self.executable.path()
+    }
+
     /// Extract native structured text, optionally from a single physical page.
     pub fn native_pages(&self, pdf: &Path, page: Option<usize>) -> Result<Vec<ExtractedPage>> {
         if page == Some(0) {
             bail!("PDF pages are one-based");
         }
 
-        let mut command = Command::new(&self.executable);
+        let mut command = Command::new(self.executable()?);
         command.args(["draw", "-q", "-F", "stext.json", "-o", "-"]);
         command.arg(pdf);
         if let Some(page) = page {
@@ -66,7 +78,7 @@ impl Mutool {
         if page == 0 {
             bail!("PDF pages are one-based");
         }
-        let mut command = Command::new(&self.executable);
+        let mut command = Command::new(self.executable()?);
         command.args(["draw", "-q", "-r", &dpi.to_string()]);
         if rotation != 0 {
             command.args(["-R", &rotation.to_string()]);
@@ -80,7 +92,7 @@ impl Mutool {
     /// Return the installed `MuPDF` version text.
     pub fn version(&self) -> Result<String> {
         let output = run(
-            Command::new(&self.executable).arg("-v"),
+            Command::new(self.executable()?).arg("-v"),
             "MuPDF version probe",
         )?;
         let stdout = String::from_utf8_lossy(&output.stdout);

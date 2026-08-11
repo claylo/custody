@@ -17,7 +17,11 @@ pub struct OcrProfile {
     pub language: String,
     pub dpi: u16,
     pub page_segmentation_mode: u8,
+    #[serde(default)]
+    pub mutool_executable: String,
     pub mutool_version: String,
+    #[serde(default)]
+    pub tesseract_executable: String,
     pub tesseract_version: String,
     pub render_command: String,
     pub orientation_command: String,

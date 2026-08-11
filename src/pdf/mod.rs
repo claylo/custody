@@ -1,13 +1,72 @@
 //! PDF text extraction backends.
 
-use std::path::Path;
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+};
 
-use anyhow::Result;
+use anyhow::{Context, Result, anyhow, bail};
 use serde::Serialize;
 
 pub mod cache;
 pub mod mutool;
 pub mod tesseract;
+
+#[derive(Debug, Clone)]
+pub(crate) struct Executable {
+    resolved: std::result::Result<PathBuf, String>,
+}
+
+impl Executable {
+    pub(crate) fn resolve(name: &str, configured: Option<&Path>) -> Self {
+        let resolved = resolve_executable(name, configured).map_err(|error| format!("{error:#}"));
+        Self { resolved }
+    }
+
+    pub(crate) fn path(&self) -> Result<&Path> {
+        self.resolved
+            .as_deref()
+            .map_err(|error| anyhow!(error.clone()))
+    }
+}
+
+fn resolve_executable(name: &str, configured: Option<&Path>) -> Result<PathBuf> {
+    if let Some(path) = configured {
+        if !path.is_absolute() {
+            bail!("pdf.tools.{name} must be an absolute path");
+        }
+        return canonical_executable(path)
+            .with_context(|| format!("failed to resolve configured {name} executable"));
+    }
+
+    let search_path = env::var_os("PATH").context("PATH is not set")?;
+    let file_name = format!("{name}{}", env::consts::EXE_SUFFIX);
+    for directory in env::split_paths(&search_path) {
+        let candidate = directory.join(&file_name);
+        if let Ok(path) = canonical_executable(&candidate) {
+            return Ok(path);
+        }
+    }
+    bail!("{name} was not found as an executable file on PATH")
+}
+
+fn canonical_executable(path: &Path) -> Result<PathBuf> {
+    let path = fs::canonicalize(path)
+        .with_context(|| format!("failed to canonicalize {}", path.display()))?;
+    let metadata =
+        fs::metadata(&path).with_context(|| format!("failed to inspect {}", path.display()))?;
+    if !metadata.is_file() {
+        bail!("{} is not a regular file", path.display());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o111 == 0 {
+            bail!("{} is not executable", path.display());
+        }
+    }
+    Ok(path)
+}
 
 /// Normalized text extracted from one physical PDF page.
 #[derive(Debug, Clone, PartialEq)]
@@ -106,10 +165,37 @@ impl PdfTools {
         ocr: &crate::config::OcrConfig,
         read_policy: cache::CacheReadPolicy,
     ) -> Result<Self> {
+        Self::build(
+            cache_root,
+            ocr,
+            &crate::config::PdfToolConfig::default(),
+            read_policy,
+        )
+    }
+
+    pub fn from_config(
+        cache_root: std::path::PathBuf,
+        pdf: &crate::config::PdfConfig,
+        read_policy: cache::CacheReadPolicy,
+    ) -> Result<Self> {
+        Self::build(cache_root, &pdf.ocr, &pdf.tools, read_policy)
+    }
+
+    fn build(
+        cache_root: std::path::PathBuf,
+        ocr: &crate::config::OcrConfig,
+        tools: &crate::config::PdfToolConfig,
+        read_policy: cache::CacheReadPolicy,
+    ) -> Result<Self> {
         let dpi = crate::config::validated_ocr_dpi(ocr.dpi)?;
         Ok(Self {
-            mutool: mutool::Mutool::default(),
-            tesseract: tesseract::Tesseract::new(ocr.lang.clone(), dpi, ocr.page_segmentation_mode),
+            mutool: mutool::Mutool::with_executable(tools.mutool.as_deref()),
+            tesseract: tesseract::Tesseract::with_executable(
+                tools.tesseract.as_deref(),
+                ocr.lang.clone(),
+                dpi,
+                ocr.page_segmentation_mode,
+            ),
             cache: cache::OcrCache::with_read_policy(cache_root, read_policy),
             ocr_enabled: ocr.enabled,
             ocr_profile: std::cell::OnceCell::new(),

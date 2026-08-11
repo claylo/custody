@@ -187,9 +187,9 @@ pub fn run() -> Result<()> {
     let json = format == ResolvedOutputFormat::Json;
     let quiet = cli.common.quiet;
     let read_policy = cache_read_policy(corpus.cache_is_corpus_local(), cli.trust_cache);
-    let tools = PdfTools::with_cache_read_policy(
+    let tools = PdfTools::from_config(
         corpus.cache_root().to_path_buf(),
-        corpus.ocr_config(),
+        corpus.pdf_config(),
         read_policy,
     )?;
     match cli.command {
@@ -602,14 +602,22 @@ fn schema_metadata() -> SchemaMetadata {
 
 fn doctor(corpus: &Corpus, tools: &PdfTools, json: bool, quiet: bool) -> Result<()> {
     let ocr = corpus.ocr_config();
-    let ocr_dpi = u16::try_from(ocr.dpi).unwrap_or(u16::MAX);
+    let ocr_dpi = crate::config::validated_ocr_dpi(ocr.dpi)?;
 
     let corpus_value = corpus.root().display().to_string();
     let config_value = corpus
         .config_file()
         .map_or_else(|| "defaults".to_owned(), |path| path.display().to_string());
+    let (mutool_path_ok, mutool_path_value) = match tools.mutool.executable() {
+        Ok(path) => (true, path.display().to_string()),
+        Err(error) => (false, error.to_string()),
+    };
     let (mutool_ok, mutool_value) = match tools.mutool.version() {
         Ok(version) => (true, version),
+        Err(error) => (false, error.to_string()),
+    };
+    let (tesseract_path_ok, tesseract_path_value) = match tools.tesseract.executable() {
+        Ok(path) => (true, path.display().to_string()),
         Err(error) => (false, error.to_string()),
     };
     let (tesseract_ok, tesseract_value) = match tools.tesseract.version() {
@@ -635,11 +643,13 @@ fn doctor(corpus: &Corpus, tools: &PdfTools, json: bool, quiet: bool) -> Result<
             Err(error) => (false, error.to_string()),
         };
 
-    let all_ok = mutool_ok && tesseract_ok && cache_ok;
+    let all_ok = mutool_path_ok && mutool_ok && tesseract_path_ok && tesseract_ok && cache_ok;
     let checks = [
         ("corpus", true, &corpus_value),
         ("config", true, &config_value),
+        ("mutool path", mutool_path_ok, &mutool_path_value),
         ("mutool", mutool_ok, &mutool_value),
+        ("tesseract path", tesseract_path_ok, &tesseract_path_value),
         ("tesseract", tesseract_ok, &tesseract_value),
         ("native profile", true, &native_profile_value),
         ("OCR profile", true, &ocr_profile_value),
@@ -650,7 +660,9 @@ fn doctor(corpus: &Corpus, tools: &PdfTools, json: bool, quiet: bool) -> Result<
         let report = serde_json::json!({
             "corpus": corpus_value,
             "config": config_value,
+            "mutool_path": mutool_path_value,
             "mutool": mutool_value,
+            "tesseract_path": tesseract_path_value,
             "tesseract": tesseract_value,
             "native_profile": native_profile_value,
             "ocr_profile": ocr_profile_value,

@@ -58,6 +58,9 @@ cache:
   root: null
 
 pdf:
+  tools:
+    mutool: null
+    tesseract: null
   ocr:
     enabled: true
     dpi: 300
@@ -70,6 +73,10 @@ coverage:
 sections:
   weak: ["Limitations", "Future Work", "Related Work"]
 ```
+
+Set `pdf.tools.mutool` or `pdf.tools.tesseract` to an absolute executable path
+to pin a tool explicitly. A null path is resolved from `PATH` once at startup;
+`doctor` reports the resulting canonical path alongside the version.
 
 The bare `corpus.markdown` / `corpus.pdf` shorthand is still accepted and
 desugars into a single source named `default`.
@@ -331,11 +338,12 @@ fragment every example and shell script.
 ## Cache
 
 Tesseract TSV is reusable runtime data, content-addressed by the PDF digest,
-backend, fixed OCR settings and command templates, MuPDF and Tesseract versions,
-and physical page. The manifest also records the applied render rotation.
+backend, fixed OCR settings and command templates, canonical MuPDF and
+Tesseract executable paths and versions, and physical page. The manifest also
+records the applied render rotation.
 
 ```text
-<cache-root>/PDF_SHA256/tesseract-eng-300dpi-v1/TOOLCHAIN_SHA256/page-NNNN/
+<cache-root>/PDF_SHA256/tesseract-eng-300dpi-v2/TOOLCHAIN_SHA256/page-NNNN/
 ```
 
 The root defaults to the platform cache directory

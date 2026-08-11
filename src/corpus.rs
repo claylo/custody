@@ -27,7 +27,7 @@ pub struct Corpus {
     cache_root: PathBuf,
     config_file: Option<PathBuf>,
     terms: crate::terms::Terms,
-    ocr_config: crate::config::OcrConfig,
+    pdf_config: crate::config::PdfConfig,
     coverage_config: crate::config::CoverageConfig,
     sections_config: crate::config::SectionsConfig,
 }
@@ -55,7 +55,7 @@ impl Corpus {
             cache_root,
             config_file,
             terms: config.terms,
-            ocr_config: config.pdf.ocr,
+            pdf_config: config.pdf,
             coverage_config: config.coverage,
             sections_config: config.sections,
         })
@@ -70,7 +70,13 @@ impl Corpus {
     /// OCR fallback settings for this corpus.
     #[must_use]
     pub const fn ocr_config(&self) -> &crate::config::OcrConfig {
-        &self.ocr_config
+        &self.pdf_config.ocr
+    }
+
+    /// PDF tool and OCR settings for this corpus.
+    #[must_use]
+    pub const fn pdf_config(&self) -> &crate::config::PdfConfig {
+        &self.pdf_config
     }
 
     /// Claim-token coverage settings for this corpus.
