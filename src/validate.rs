@@ -7,6 +7,7 @@ use serde::Serialize;
 
 use crate::{
     config::TokenSeverity,
+    coordinate::{ClaimIndex, LocatorIndex, Page},
     corpus::Corpus,
     evidence::{EvidenceIssue, IssueCode, PdfBackend, Severity, SummaryDocument, issue_code},
     hash::sha256_file,
@@ -172,7 +173,7 @@ pub fn validate_document(
         }
     }
 
-    let mut pdf_pages: HashMap<(&str, PdfBackend, usize), Result<String, String>> = HashMap::new();
+    let mut pdf_pages: HashMap<(&str, PdfBackend, Page), Result<String, String>> = HashMap::new();
     let token_severity = match corpus.coverage_config().tokens {
         TokenSeverity::Error => Some(Severity::Error),
         TokenSeverity::Warn => Some(Severity::Warning),
@@ -181,6 +182,7 @@ pub fn validate_document(
 
     for entry in &evidence.claims {
         for (locator_index, locator) in entry.locators.iter().enumerate() {
+            let locator_index = LocatorIndex::new(locator_index);
             let source_name = locator.source.as_str();
 
             if let Some(units) = source_units.get(source_name) {
@@ -304,7 +306,7 @@ pub fn validate_document(
         }
 
         if let Some(severity) = token_severity
-            && let Some(claim_text) = summary.claims.get(entry.claim)
+            && let Some(claim_text) = summary.claims.get(entry.claim.get())
         {
             for token in &tokens::extract(claim_text).required {
                 let covered = entry.locators.iter().any(|locator| {
@@ -370,6 +372,7 @@ pub fn validate_document(
     } else if require_review {
         let term = &corpus.terms().claim;
         for index in 0..summary.claims.len() {
+            let index = ClaimIndex::new(index);
             issues.push(issue(
                 issue_code::MISSING_REVIEW,
                 Severity::Error,
@@ -391,7 +394,7 @@ fn extract_pdf_page(
     pdf_path: &Path,
     pdf_sha256: &str,
     backend: PdfBackend,
-    page: usize,
+    page: Page,
 ) -> Result<String, String> {
     let extracted = match backend {
         PdfBackend::MutoolNative => {
@@ -519,8 +522,8 @@ fn issue(
     code: IssueCode,
     severity: Severity,
     message: impl Into<String>,
-    claim: Option<usize>,
-    locator: Option<usize>,
+    claim: Option<ClaimIndex>,
+    locator: Option<LocatorIndex>,
 ) -> EvidenceIssue {
     EvidenceIssue {
         code: code.as_str().to_owned(),
@@ -537,8 +540,8 @@ fn source_issue(
     severity: Severity,
     message: impl Into<String>,
     source: &str,
-    claim: Option<usize>,
-    locator: Option<usize>,
+    claim: Option<ClaimIndex>,
+    locator: Option<LocatorIndex>,
 ) -> EvidenceIssue {
     EvidenceIssue {
         code: code.as_str().to_owned(),

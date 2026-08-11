@@ -5,7 +5,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::{
-    hash::sha256_bytes, markdown::UnitKind, normalize::normalize, review::Review, terms::Terms,
+    coordinate::{ClaimIndex, Column, Line, LocatorIndex, Page},
+    hash::sha256_bytes,
+    markdown::UnitKind,
+    normalize::normalize,
+    review::Review,
+    terms::Terms,
 };
 
 /// The source name a document gets when it declares only one source pair.
@@ -46,7 +51,7 @@ pub struct SourceRecord {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClaimEvidence {
-    pub claim: usize,
+    pub claim: ClaimIndex,
     pub claim_sha256: String,
     pub locators: Vec<Locator>,
 }
@@ -68,8 +73,8 @@ fn default_source_name() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MarkdownLocator {
-    pub line: usize,
-    pub column: usize,
+    pub line: Line,
+    pub column: Column,
     pub unit: UnitKind,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub section: Vec<String>,
@@ -78,7 +83,7 @@ pub struct MarkdownLocator {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PdfLocator {
-    pub page: usize,
+    pub page: Page,
     pub backend: PdfBackend,
 }
 
@@ -116,9 +121,9 @@ pub struct EvidenceIssue {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub claim: Option<usize>,
+    pub claim: Option<ClaimIndex>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub locator: Option<usize>,
+    pub locator: Option<LocatorIndex>,
 }
 
 /// One stable issue kind and its CLI schema metadata.
@@ -189,9 +194,6 @@ define_issue_codes! {
     INVALID_SOURCE_NAME => ("invalid_source_name", Some(1), "Source name is not a valid path component"),
     INVALID_SHA256 => ("invalid_sha256", Some(1), "SHA-256 value is not 64 lowercase hex characters"),
     INVALID_ID => ("invalid_id", Some(1), "Summary IDs must be 3+ characters of lowercase ASCII letters, digits, and interior hyphens"),
-    INVALID_MARKDOWN_LINE => ("invalid_markdown_line", Some(1), "Markdown line coordinate is invalid"),
-    INVALID_MARKDOWN_COLUMN => ("invalid_markdown_column", Some(1), "Markdown column coordinate is invalid"),
-    INVALID_PDF_PAGE => ("invalid_pdf_page", Some(1), "PDF page number is invalid"),
     MARKDOWN_UNIT_MISSING => ("markdown_unit_missing", Some(1), "No semantic unit at the recorded Markdown coordinates"),
     MARKDOWN_READ_FAILED => ("markdown_read_failed", Some(1), "Markdown source file could not be read"),
     PDF_EXTRACTION_FAILED => ("pdf_extraction_failed", Some(1), "PDF text extraction failed"),
@@ -269,8 +271,8 @@ fn desugar_evidence_sources(value: &mut Value) -> Result<()> {
 }
 
 impl SummaryDocument {
-    pub fn claim_hash(&self, index: usize) -> Result<String> {
-        let Some(claim) = self.claims.get(index) else {
+    pub fn claim_hash(&self, index: ClaimIndex) -> Result<String> {
+        let Some(claim) = self.claims.get(index.get()) else {
             bail!("claim index {index} is out of range");
         };
         Ok(sha256_bytes(claim.as_bytes()))
@@ -316,7 +318,7 @@ impl SummaryDocument {
         let mut referenced: BTreeSet<&str> = BTreeSet::new();
         let mut counts = vec![0_usize; self.claims.len()];
         for entry in &evidence.claims {
-            if entry.claim >= self.claims.len() {
+            if entry.claim.get() >= self.claims.len() {
                 issues.push(issue(
                     issue_code::ENTRY_OUT_OF_RANGE,
                     Severity::Error,
@@ -331,7 +333,7 @@ impl SummaryDocument {
                     None,
                 ));
             } else {
-                counts[entry.claim] += 1;
+                counts[entry.claim.get()] += 1;
                 let actual = self.claim_hash(entry.claim).expect("index was checked");
                 if entry.claim_sha256 != actual {
                     issues.push(issue(
@@ -371,10 +373,15 @@ impl SummaryDocument {
                         Severity::Error,
                         format!("locator references undeclared source {:?}", locator.source),
                         Some(entry.claim),
-                        Some(locator_index),
+                        Some(LocatorIndex::new(locator_index)),
                     ));
                 }
-                validate_locator(entry.claim, locator_index, locator, &mut issues);
+                validate_locator(
+                    entry.claim,
+                    LocatorIndex::new(locator_index),
+                    locator,
+                    &mut issues,
+                );
             }
         }
 
@@ -384,7 +391,7 @@ impl SummaryDocument {
                     issue_code::MISSING_EVIDENCE_ENTRY,
                     Severity::Error,
                     format!("missing evidence for {} {index}", terms.claim),
-                    Some(index),
+                    Some(ClaimIndex::new(index)),
                     None,
                 )),
                 1 => {}
@@ -392,7 +399,7 @@ impl SummaryDocument {
                     issue_code::DUPLICATE_ENTRY,
                     Severity::Error,
                     format!("{} {index} has {count} evidence entries", terms.claim),
-                    Some(index),
+                    Some(ClaimIndex::new(index)),
                     None,
                 )),
             }
@@ -427,7 +434,12 @@ fn validate_source(label: &str, source: &SourceRecord, issues: &mut Vec<Evidence
     validate_hash(&format!("{label} sha256"), &source.sha256, None, issues);
 }
 
-fn validate_hash(label: &str, hash: &str, claim: Option<usize>, issues: &mut Vec<EvidenceIssue>) {
+fn validate_hash(
+    label: &str,
+    hash: &str,
+    claim: Option<ClaimIndex>,
+    issues: &mut Vec<EvidenceIssue>,
+) {
     if hash.len() != 64
         || !hash
             .bytes()
@@ -444,8 +456,8 @@ fn validate_hash(label: &str, hash: &str, claim: Option<usize>, issues: &mut Vec
 }
 
 fn validate_locator(
-    claim: usize,
-    locator_index: usize,
+    claim: ClaimIndex,
+    locator_index: LocatorIndex,
     locator: &Locator,
     issues: &mut Vec<EvidenceIssue>,
 ) {
@@ -467,41 +479,14 @@ fn validate_locator(
             Some(locator_index),
         ));
     }
-    if locator.markdown.line == 0 {
-        issues.push(issue(
-            issue_code::INVALID_MARKDOWN_LINE,
-            Severity::Error,
-            "Markdown line must be one-based",
-            Some(claim),
-            Some(locator_index),
-        ));
-    }
-    if locator.markdown.column == 0 {
-        issues.push(issue(
-            issue_code::INVALID_MARKDOWN_COLUMN,
-            Severity::Error,
-            "Markdown column must be one-based",
-            Some(claim),
-            Some(locator_index),
-        ));
-    }
-    if locator.pdf.page == 0 {
-        issues.push(issue(
-            issue_code::INVALID_PDF_PAGE,
-            Severity::Error,
-            "PDF page must be one-based",
-            Some(claim),
-            Some(locator_index),
-        ));
-    }
 }
 
 fn issue(
     code: IssueCode,
     severity: Severity,
     message: impl Into<String>,
-    claim: Option<usize>,
-    locator: Option<usize>,
+    claim: Option<ClaimIndex>,
+    locator: Option<LocatorIndex>,
 ) -> EvidenceIssue {
     EvidenceIssue {
         code: code.as_str().to_owned(),

@@ -7,7 +7,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::hash::sha256_bytes;
+use crate::{coordinate::Page, hash::sha256_bytes};
 
 /// All settings and versions that can affect OCR output.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,23 +33,20 @@ pub struct OcrProfile {
 #[serde(deny_unknown_fields)]
 pub struct CacheManifest {
     pub pdf_sha256: String,
-    pub page: usize,
+    pub page: Page,
     pub profile: OcrProfile,
     pub toolchain_sha256: String,
     pub render_rotation_degrees: i16,
 }
 
 impl CacheManifest {
-    pub fn new(pdf_sha256: String, page: usize, profile: OcrProfile) -> Result<Self> {
+    pub fn new(pdf_sha256: String, page: Page, profile: OcrProfile) -> Result<Self> {
         if pdf_sha256.len() != 64
             || !pdf_sha256
                 .bytes()
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
         {
             bail!("PDF SHA-256 must be 64 lowercase hexadecimal characters");
-        }
-        if page == 0 {
-            bail!("PDF pages are one-based");
         }
         if profile.name.is_empty()
             || !profile

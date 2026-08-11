@@ -12,6 +12,7 @@ use librebar::cli::{
 use serde::Serialize;
 
 use crate::{
+    coordinate::{ClaimIndex, Column, Line, Page},
     corpus::Corpus,
     evidence::{
         ClaimEvidence, DEFAULT_SOURCE, IssueCode, Locator, MarkdownLocator, PdfBackend, PdfLocator,
@@ -72,17 +73,17 @@ enum Command {
 struct LocateArgs {
     id: String,
     #[arg(long)]
-    claim: usize,
+    claim: ClaimIndex,
     #[arg(long)]
     exact: String,
     #[arg(long, default_value = DEFAULT_SOURCE)]
     source: String,
     #[arg(long)]
-    page: Option<usize>,
+    page: Option<Page>,
     #[arg(long)]
-    line: Option<usize>,
+    line: Option<Line>,
     #[arg(long)]
-    column: Option<usize>,
+    column: Option<Column>,
 }
 
 #[derive(Debug, Args)]
@@ -165,7 +166,7 @@ struct LocateResult {
 
 #[derive(Debug, Serialize)]
 struct PdfMatchDiagnostic {
-    page: usize,
+    page: Page,
     backend: PdfBackend,
     #[serde(skip_serializing_if = "Option::is_none")]
     bbox: Option<PdfBbox>,
@@ -515,9 +516,6 @@ fn probe_tool_version(
 }
 
 fn locate(corpus: &Corpus, tools: &PdfTools, args: &LocateArgs, json: bool) -> Result<()> {
-    if args.page == Some(0) || args.line == Some(0) || args.column == Some(0) {
-        bail!("page, line, and column are one-based");
-    }
     if args.column.is_some() && args.line.is_none() {
         bail!("--column requires --line");
     }
@@ -532,7 +530,7 @@ fn locate(corpus: &Corpus, tools: &PdfTools, args: &LocateArgs, json: bool) -> R
     }
     let claim = summary
         .claims
-        .get(args.claim)
+        .get(args.claim.get())
         .with_context(|| format!("claim {} is out of range", args.claim))?;
     let exact = normalize(&args.exact);
     if exact.is_empty() {
@@ -630,10 +628,10 @@ fn locate_pdf(
     tools: &PdfTools,
     pdf: &Path,
     pdf_sha256: &str,
-    page: Option<usize>,
+    page: Option<Page>,
     exact: &str,
     ocr_enabled: bool,
-) -> Result<(usize, PdfBackend, Option<PdfBbox>, Option<f64>)> {
+) -> Result<(Page, PdfBackend, Option<PdfBbox>, Option<f64>)> {
     let native = tools.native_pages(pdf, page)?;
     let native_matches: Vec<_> = native
         .iter()
@@ -906,7 +904,7 @@ fn print_propose_human(
     for proposal in &report.claims {
         let claim_text = summary
             .claims
-            .get(proposal.claim)
+            .get(proposal.claim.get())
             .map_or("<unknown>", String::as_str);
         print_line(format_args!(
             "# {} {}  {:?}",
@@ -1193,7 +1191,7 @@ mod tests {
     #[test]
     fn missing_pdf_geometry_is_explicit_in_diagnostics() {
         let diagnostic = PdfMatchDiagnostic {
-            page: 1,
+            page: Page::new(1).unwrap(),
             backend: PdfBackend::MutoolNative,
             bbox: None,
             geometry_note: Some("no geometry available for this backend"),

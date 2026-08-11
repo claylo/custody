@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use anyhow::Result;
 use serde::Serialize;
 
+use crate::coordinate::{ClaimIndex, Column, Line, Page};
 use crate::corpus::Corpus;
 use crate::evidence::{PdfBackend, SummaryDocument};
 use crate::markdown::{MarkdownUnit, UnitKind, exact_count, parse_units};
@@ -27,7 +28,7 @@ pub struct ProposalReport {
 /// Candidates offered for one claim, and the tokens none of them reach.
 #[derive(Debug, Clone, Serialize)]
 pub struct ClaimProposal {
-    pub claim: usize,
+    pub claim: ClaimIndex,
     pub required_tokens: Vec<String>,
     pub uncovered_tokens: Vec<String>,
     pub advisory_tokens: Vec<String>,
@@ -54,8 +55,8 @@ pub struct CoverageScore {
 /// Where a candidate sits in the converted Markdown.
 #[derive(Debug, Clone, Serialize)]
 pub struct MarkdownMatch {
-    pub line: usize,
-    pub column: usize,
+    pub line: Line,
+    pub column: Column,
     pub unit: UnitKind,
     pub section: Vec<String>,
 }
@@ -63,7 +64,7 @@ pub struct MarkdownMatch {
 /// The single PDF page a candidate was found on.
 #[derive(Debug, Clone, Serialize)]
 pub struct PdfMatch {
-    pub page: usize,
+    pub page: Page,
     pub backend: PdfBackend,
 }
 
@@ -116,7 +117,7 @@ pub fn propose_document(
     max_candidates: usize,
     all_claims: bool,
 ) -> Result<ProposalReport> {
-    let settled: BTreeSet<usize> = summary
+    let settled: BTreeSet<ClaimIndex> = summary
         .evidence
         .as_ref()
         .map(|evidence| {
@@ -130,7 +131,7 @@ pub fn propose_document(
         .unwrap_or_default();
 
     let mut source_units: BTreeMap<String, Vec<MarkdownUnit>> = BTreeMap::new();
-    let mut source_pages: BTreeMap<String, HashMap<usize, String>> = BTreeMap::new();
+    let mut source_pages: BTreeMap<String, HashMap<Page, String>> = BTreeMap::new();
 
     for source_name in corpus.source_names() {
         let markdown_candidates = corpus.markdown_candidates_for(&summary.id, &source_name)?;
@@ -156,6 +157,7 @@ pub fn propose_document(
 
     let mut claims = Vec::new();
     for (index, claim_text) in summary.claims.iter().enumerate() {
+        let index = ClaimIndex::new(index);
         if !all_claims && settled.contains(&index) {
             continue;
         }
@@ -227,8 +229,8 @@ struct RawCandidate {
     source: String,
     exact: String,
     matched: usize,
-    line: usize,
-    column: usize,
+    line: Line,
+    column: Column,
     unit: UnitKind,
     section: Vec<String>,
 }
@@ -289,7 +291,7 @@ fn covers(text: &str, token: &str) -> bool {
 }
 
 /// The one page holding a span, or `None` when zero or several hold it.
-fn verify_pdf(pages: &HashMap<usize, String>, exact: &str) -> Option<usize> {
+fn verify_pdf(pages: &HashMap<Page, String>, exact: &str) -> Option<Page> {
     let mut matched = pages
         .iter()
         .filter(|(_, text)| exact_count(text, exact) > 0)

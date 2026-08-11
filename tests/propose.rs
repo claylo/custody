@@ -6,6 +6,7 @@ use std::{
 
 use anyhow::{Result, bail};
 use receipts::{
+    coordinate::{ClaimIndex, Column, Line, Page},
     corpus::Corpus,
     evidence::{
         ClaimEvidence, DEFAULT_SOURCE, Evidence, Locator, MarkdownLocator, PdfBackend, PdfLocator,
@@ -257,7 +258,7 @@ struct FakePdf {
 }
 
 impl PdfTextProvider for FakePdf {
-    fn native_pages(&self, _pdf: &Path, page: Option<usize>) -> Result<Vec<ExtractedPage>> {
+    fn native_pages(&self, _pdf: &Path, page: Option<Page>) -> Result<Vec<ExtractedPage>> {
         Ok(match page {
             None => self.pages.clone(),
             Some(number) => self
@@ -269,7 +270,7 @@ impl PdfTextProvider for FakePdf {
         })
     }
 
-    fn ocr_page(&self, _pdf: &Path, _pdf_sha256: &str, _page: usize) -> Result<ExtractedPage> {
+    fn ocr_page(&self, _pdf: &Path, _pdf_sha256: &str, _page: Page) -> Result<ExtractedPage> {
         bail!("proposal never falls back to OCR")
     }
 }
@@ -306,7 +307,7 @@ impl Fixture {
 
 fn page(number: usize, text: &str) -> ExtractedPage {
     ExtractedPage {
-        page: number,
+        page: Page::new(number).unwrap(),
         text: text.to_owned(),
         spans: Vec::new(),
         mean_confidence: None,
@@ -339,19 +340,19 @@ fn summary_with_evidence(markdown: &str, claim: &str) -> SummaryDocument {
             },
         )]),
         claims: vec![ClaimEvidence {
-            claim: 0,
+            claim: ClaimIndex::new(0),
             claim_sha256: sha256_bytes(claim.as_bytes()),
             locators: vec![Locator {
                 source: DEFAULT_SOURCE.to_owned(),
                 exact: "Supported once".to_owned(),
                 markdown: MarkdownLocator {
-                    line: 1,
-                    column: 1,
+                    line: Line::new(1).unwrap(),
+                    column: Column::new(1).unwrap(),
                     unit: UnitKind::Paragraph,
                     section: Vec::new(),
                 },
                 pdf: PdfLocator {
-                    page: 1,
+                    page: Page::new(1).unwrap(),
                     backend: PdfBackend::MutoolNative,
                 },
             }],

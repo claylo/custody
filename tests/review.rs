@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use receipts::coordinate::{ClaimIndex, Column, Line, Page};
 use receipts::evidence::{
     ClaimEvidence, DEFAULT_SOURCE, Evidence, Locator, MarkdownLocator, PdfBackend, PdfLocator,
     SourcePair, SourceRecord,
@@ -14,13 +15,13 @@ fn test_locator(exact: &str, page: usize) -> Locator {
         source: DEFAULT_SOURCE.to_owned(),
         exact: exact.to_owned(),
         markdown: MarkdownLocator {
-            line: 1,
-            column: 1,
+            line: Line::new(1).unwrap(),
+            column: Column::new(1).unwrap(),
             unit: UnitKind::Paragraph,
             section: vec![],
         },
         pdf: PdfLocator {
-            page,
+            page: Page::new(page).unwrap(),
             backend: PdfBackend::MutoolNative,
         },
     }
@@ -29,7 +30,7 @@ fn test_locator(exact: &str, page: usize) -> Locator {
 fn test_entry(locators: Vec<Locator>) -> ClaimEvidence {
     let claim = "test claim".to_owned();
     ClaimEvidence {
-        claim: 0,
+        claim: ClaimIndex::new(0),
         claim_sha256: sha256_bytes(claim.as_bytes()),
         locators,
     }
@@ -41,7 +42,7 @@ fn review_entry_for(claim: usize, claims: &[String], evidence: Option<&Evidence>
         .and_then(|ev| ev.claims.iter().find(|e| e.claim == claim))
         .map_or_else(|| "0".repeat(64), evidence_sha256);
     ReviewEntry {
-        claim,
+        claim: ClaimIndex::new(claim),
         claim_sha256,
         evidence_sha256: evidence_sha256_val,
         verdict: Verdict::Supported,
@@ -74,7 +75,7 @@ fn test_evidence(claims: &[String]) -> Evidence {
             .iter()
             .enumerate()
             .map(|(i, c)| ClaimEvidence {
-                claim: i,
+                claim: ClaimIndex::new(i),
                 claim_sha256: sha256_bytes(c.as_bytes()),
                 locators: vec![test_locator("some evidence", 1)],
             })
@@ -189,7 +190,7 @@ fn unknown_review_claim_is_reported() {
     let claims = test_claims();
     let evidence = test_evidence(&claims);
     let mut entry = review_entry_for(0, &claims, Some(&evidence));
-    entry.claim = 99;
+    entry.claim = ClaimIndex::new(99);
     let review = Review {
         claims: vec![entry],
     };

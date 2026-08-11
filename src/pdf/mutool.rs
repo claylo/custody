@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 use super::{Executable, NumericVersion, parse_numeric_version};
 use super::{ExtractedPage, PdfBbox, TextSpan};
-use crate::normalize::normalize;
+use crate::{coordinate::Page, normalize::normalize};
 
 pub const PROFILE_NAME: &str = "mutool-native";
 pub const SUPPORTED_VERSION_RANGE: &str = ">=1.28.0, <1.29.0";
@@ -50,11 +50,7 @@ impl Mutool {
     }
 
     /// Extract native structured text, optionally from a single physical page.
-    pub fn native_pages(&self, pdf: &Path, page: Option<usize>) -> Result<Vec<ExtractedPage>> {
-        if page == Some(0) {
-            bail!("PDF pages are one-based");
-        }
-
+    pub fn native_pages(&self, pdf: &Path, page: Option<Page>) -> Result<Vec<ExtractedPage>> {
         let mut command = Command::new(self.executable()?);
         command.args(["draw", "-q", "-F", "stext.json", "-o", "-"]);
         command.arg(pdf);
@@ -81,14 +77,11 @@ impl Mutool {
     pub fn render_page(
         &self,
         pdf: &Path,
-        page: usize,
+        page: Page,
         dpi: u16,
         rotation: i16,
         output: &Path,
     ) -> Result<()> {
-        if page == 0 {
-            bail!("PDF pages are one-based");
-        }
         let mut command = Command::new(self.executable()?);
         command.args(["draw", "-q", "-r", &dpi.to_string()]);
         if rotation != 0 {
@@ -137,7 +130,7 @@ pub fn parse_stext_json(source: &str) -> Result<Vec<ExtractedPage>> {
                 .collect::<Vec<_>>()
                 .join(" ");
             Ok(ExtractedPage {
-                page: index + 1,
+                page: Page::new(index + 1).expect("enumerated pages are one-based"),
                 text: normalize(&text),
                 spans: lines
                     .into_iter()

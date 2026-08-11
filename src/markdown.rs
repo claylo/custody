@@ -2,7 +2,10 @@ use anyhow::{Result, bail};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use serde::{Deserialize, Serialize};
 
-use crate::normalize::normalize;
+use crate::{
+    coordinate::{Column, Line},
+    normalize::normalize,
+};
 
 /// Semantic Markdown boundaries accepted by evidence locators.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,8 +39,8 @@ impl UnitKind {
 pub struct MarkdownUnit {
     pub kind: UnitKind,
     pub text: String,
-    pub line: usize,
-    pub column: usize,
+    pub line: Line,
+    pub column: Column,
     /// Texts of the headings this unit sits under, outermost first.
     pub section: Vec<String>,
 }
@@ -104,10 +107,22 @@ pub fn parse_units(source: &str) -> Vec<MarkdownUnit> {
             },
             Event::End(tag) => match tag {
                 TagEnd::Paragraph | TagEnd::Heading(_) | TagEnd::TableCell | TagEnd::CodeBlock => {
-                    finish_unit(&line_starts, &mut active, &mut units, &mut heading_stack);
+                    finish_unit(
+                        source,
+                        &line_starts,
+                        &mut active,
+                        &mut units,
+                        &mut heading_stack,
+                    );
                 }
                 TagEnd::Item => {
-                    finish_unit(&line_starts, &mut active, &mut units, &mut heading_stack);
+                    finish_unit(
+                        source,
+                        &line_starts,
+                        &mut active,
+                        &mut units,
+                        &mut heading_stack,
+                    );
                     item_depth = item_depth.saturating_sub(1);
                 }
                 TagEnd::BlockQuote(_) => {
@@ -157,7 +172,13 @@ pub fn parse_units(source: &str) -> Vec<MarkdownUnit> {
         }
     }
 
-    finish_unit(&line_starts, &mut active, &mut units, &mut heading_stack);
+    finish_unit(
+        source,
+        &line_starts,
+        &mut active,
+        &mut units,
+        &mut heading_stack,
+    );
     units
 }
 
@@ -165,12 +186,9 @@ pub fn parse_units(source: &str) -> Vec<MarkdownUnit> {
 pub fn resolve_unit(
     units: &[MarkdownUnit],
     kind: UnitKind,
-    line: usize,
-    column: usize,
+    line: Line,
+    column: Column,
 ) -> Result<&MarkdownUnit> {
-    if line == 0 || column == 0 {
-        bail!("Markdown line and column must be one-based");
-    }
     let mut matches = units
         .iter()
         .filter(|unit| unit.kind == kind && unit.line == line && unit.column == column);
@@ -204,6 +222,7 @@ impl UnitBuilder {
 }
 
 fn finish_unit(
+    source: &str,
     line_starts: &[usize],
     active: &mut Option<UnitBuilder>,
     units: &mut Vec<MarkdownUnit>,
@@ -216,7 +235,7 @@ fn finish_unit(
     if text.is_empty() {
         return;
     }
-    let (line, column) = line_column_from_index(line_starts, builder.start);
+    let (line, column) = line_column_from_index(source, line_starts, builder.start);
     let section: Vec<String> = heading_stack
         .iter()
         .map(|(_, heading)| heading.clone())
@@ -246,11 +265,13 @@ fn build_line_starts(source: &str) -> Vec<usize> {
     starts
 }
 
-fn line_column_from_index(line_starts: &[usize], offset: usize) -> (usize, usize) {
+fn line_column_from_index(source: &str, line_starts: &[usize], offset: usize) -> (Line, Column) {
     let line_index = line_starts
         .partition_point(|&start| start <= offset)
         .saturating_sub(1);
     let line_start = line_starts[line_index];
-    let column = offset.saturating_sub(line_start) + 1;
-    (line_index + 1, column)
+    let line = Line::new(line_index + 1).expect("line indices are one-based");
+    let column = Column::new(source[line_start..offset].chars().count() + 1)
+        .expect("column indices are one-based");
+    (line, column)
 }

@@ -276,10 +276,10 @@ The bare `evidence.markdown` / `evidence.pdf` shorthand (no `sources:` map) is
 still accepted and desugars into a single source named `default`. `source` on a
 locator defaults to `default` and may be omitted.
 
-Claim indexes are zero-based; Markdown coordinates and physical PDF pages are
-one-based. Every claim must have one entry and at least one locator. Use several
-locators when a single literal does not support every material assertion in the
-claim.
+Claim indexes are zero-based; Markdown lines, character columns (counted as
+Unicode scalar values), and physical PDF pages are one-based. Every claim must
+have one entry and at least one locator. Use several locators when a single
+literal does not support every material assertion in the claim.
 
 `section` records the heading path the locator sits under. It is verified
 against the live document — a heading change produces a `stale_section` error.

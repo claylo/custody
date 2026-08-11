@@ -8,6 +8,8 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use serde::Serialize;
 
+use crate::coordinate::Page;
+
 pub mod cache;
 pub mod mutool;
 pub mod tesseract;
@@ -124,7 +126,7 @@ fn canonical_executable(path: &Path) -> Result<PathBuf> {
 /// Normalized text extracted from one physical PDF page.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExtractedPage {
-    pub page: usize,
+    pub page: Page,
     pub text: String,
     pub spans: Vec<TextSpan>,
     pub mean_confidence: Option<f64>,
@@ -193,9 +195,9 @@ impl PdfBbox {
 
 /// Backend boundary used by evidence validation and test doubles.
 pub trait PdfTextProvider {
-    fn native_pages(&self, pdf: &Path, page: Option<usize>) -> Result<Vec<ExtractedPage>>;
+    fn native_pages(&self, pdf: &Path, page: Option<Page>) -> Result<Vec<ExtractedPage>>;
 
-    fn ocr_page(&self, pdf: &Path, pdf_sha256: &str, page: usize) -> Result<ExtractedPage>;
+    fn ocr_page(&self, pdf: &Path, pdf_sha256: &str, page: Page) -> Result<ExtractedPage>;
 }
 
 /// Concrete `MuPDF` + Tesseract provider with a corpus-local OCR cache.
@@ -272,11 +274,11 @@ impl PdfTools {
 }
 
 impl PdfTextProvider for PdfTools {
-    fn native_pages(&self, pdf: &Path, page: Option<usize>) -> Result<Vec<ExtractedPage>> {
+    fn native_pages(&self, pdf: &Path, page: Option<Page>) -> Result<Vec<ExtractedPage>> {
         self.mutool.native_pages(pdf, page)
     }
 
-    fn ocr_page(&self, pdf: &Path, pdf_sha256: &str, page: usize) -> Result<ExtractedPage> {
+    fn ocr_page(&self, pdf: &Path, pdf_sha256: &str, page: Page) -> Result<ExtractedPage> {
         if !self.ocr_enabled {
             anyhow::bail!("OCR is disabled in configuration");
         }

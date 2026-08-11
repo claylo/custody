@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
+use crate::coordinate::ClaimIndex;
 use crate::evidence::{ClaimEvidence, Evidence, EvidenceIssue, IssueCode, Severity, issue_code};
 use crate::hash::sha256_bytes;
 use crate::normalize::normalize;
@@ -19,7 +20,7 @@ pub enum Verdict {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReviewEntry {
-    pub claim: usize,
+    pub claim: ClaimIndex,
     pub claim_sha256: String,
     pub evidence_sha256: String,
     pub verdict: Verdict,
@@ -97,14 +98,14 @@ pub fn validate_review(
     terms: &Terms,
 ) -> Vec<EvidenceIssue> {
     let mut issues = Vec::new();
-    let mut reviewed: BTreeSet<usize> = BTreeSet::new();
+    let mut reviewed: BTreeSet<ClaimIndex> = BTreeSet::new();
 
-    let evidence_entries: std::collections::BTreeMap<usize, &ClaimEvidence> = evidence
+    let evidence_entries: std::collections::BTreeMap<ClaimIndex, &ClaimEvidence> = evidence
         .map(|ev| ev.claims.iter().map(|e| (e.claim, e)).collect())
         .unwrap_or_default();
 
     for entry in &review.claims {
-        if entry.claim >= claims.len() {
+        if entry.claim.get() >= claims.len() {
             issues.push(issue(
                 issue_code::UNKNOWN_REVIEW_CLAIM,
                 Severity::Error,
@@ -130,7 +131,7 @@ pub fn validate_review(
             continue;
         }
 
-        let expected_claim_hash = sha256_bytes(claims[entry.claim].as_bytes());
+        let expected_claim_hash = sha256_bytes(claims[entry.claim.get()].as_bytes());
         if entry.claim_sha256 != expected_claim_hash {
             issues.push(issue(
                 issue_code::STALE_REVIEW_CLAIM,
@@ -161,6 +162,7 @@ pub fn validate_review(
 
     if require_review {
         for index in 0..claims.len() {
+            let index = ClaimIndex::new(index);
             if !reviewed.contains(&index) {
                 issues.push(issue(
                     issue_code::MISSING_REVIEW,
@@ -172,7 +174,7 @@ pub fn validate_review(
         }
 
         for entry in &review.claims {
-            if entry.claim < claims.len() && entry.verdict != Verdict::Supported {
+            if entry.claim.get() < claims.len() && entry.verdict != Verdict::Supported {
                 issues.push(issue(
                     issue_code::UNSUPPORTED_VERDICT,
                     Severity::Error,
@@ -193,7 +195,7 @@ fn issue(
     code: IssueCode,
     severity: Severity,
     message: impl Into<String>,
-    claim: Option<usize>,
+    claim: Option<ClaimIndex>,
 ) -> EvidenceIssue {
     EvidenceIssue {
         code: code.as_str().to_owned(),

@@ -1,6 +1,7 @@
 use std::{collections::BTreeMap, fmt::Write as _};
 
 use receipts::{
+    coordinate::{ClaimIndex, Column, Line, Page},
     evidence::{
         ClaimEvidence, Evidence, Locator, MarkdownLocator, PdfBackend, PdfLocator, SourcePair,
         SourceRecord, SummaryDocument, parse_summary,
@@ -28,7 +29,7 @@ fn parses_the_complete_contract_and_hashes_decoded_claim_values() {
             .backend,
         PdfBackend::MutoolNative
     );
-    assert_eq!(summary.claim_hash(0).unwrap(), claim_hash);
+    assert_eq!(summary.claim_hash(ClaimIndex::new(0)).unwrap(), claim_hash);
     assert!(
         summary
             .validate_evidence_structure(&Terms::default())
@@ -60,20 +61,28 @@ fn reports_missing_duplicate_and_out_of_range_claim_coverage() {
 }
 
 #[test]
-fn reports_stale_claim_hashes_and_invalid_coordinates() {
-    let mut yaml = valid_yaml(HASH_A);
-    yaml = yaml.replace("line: 1", "line: 0");
-    yaml = yaml.replace("page: 1", "page: 0");
+fn reports_stale_claim_hashes() {
+    let yaml = valid_yaml(HASH_A);
     let summary = parse_summary(&yaml, &Terms::default()).unwrap();
     let issues = summary.validate_evidence_structure(&Terms::default());
 
     assert!(issues.iter().any(|issue| issue.code == "stale_hash"));
-    assert!(
-        issues
-            .iter()
-            .any(|issue| issue.code == "invalid_markdown_line")
-    );
-    assert!(issues.iter().any(|issue| issue.code == "invalid_pdf_page"));
+}
+
+#[test]
+fn rejects_zero_coordinates_during_decode() {
+    let yaml = valid_yaml(HASH_A);
+    for (field, replacement, expected) in [
+        ("line", "line: 0", "line must be one-based"),
+        ("page", "page: 0", "page must be one-based"),
+    ] {
+        let invalid = yaml.replace(&format!("{field}: 1"), replacement);
+        let error = format!(
+            "{:#}",
+            parse_summary(&invalid, &Terms::default()).unwrap_err()
+        );
+        assert!(error.contains(expected), "{error}");
+    }
 }
 
 #[test]
@@ -198,19 +207,19 @@ fn reports_unknown_and_unused_sources() {
                 },
             )]),
             claims: vec![ClaimEvidence {
-                claim: 0,
+                claim: ClaimIndex::new(0),
                 claim_sha256: sha256_bytes(claim.as_bytes()),
                 locators: vec![Locator {
                     source: "other".to_owned(),
                     exact: "remained laminar".to_owned(),
                     markdown: MarkdownLocator {
-                        line: 1,
-                        column: 1,
+                        line: Line::new(1).unwrap(),
+                        column: Column::new(1).unwrap(),
                         unit: UnitKind::Paragraph,
                         section: Vec::new(),
                     },
                     pdf: PdfLocator {
-                        page: 1,
+                        page: Page::new(1).unwrap(),
                         backend: PdfBackend::MutoolNative,
                     },
                 }],

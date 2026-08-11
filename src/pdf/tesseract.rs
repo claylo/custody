@@ -13,7 +13,7 @@ use super::{
     mutool::Mutool,
     parse_numeric_version,
 };
-use crate::normalize::normalize;
+use crate::{coordinate::Page, normalize::normalize};
 
 const ORIENTATION_COMMAND: &str = "tesseract IMAGE stdout -l osd --psm 0";
 pub const SUPPORTED_VERSION_RANGE: &str = ">=5.5.0, <5.6.0";
@@ -52,7 +52,7 @@ pub struct ParsedTsv {
 
 impl ParsedTsv {
     #[must_use]
-    pub fn into_extracted_page(self, page: usize) -> ExtractedPage {
+    pub fn into_extracted_page(self, page: Page) -> ExtractedPage {
         ExtractedPage {
             page,
             text: self.text,
@@ -78,7 +78,7 @@ pub trait PageRenderer {
     fn render_page(
         &self,
         pdf: &Path,
-        page: usize,
+        page: Page,
         dpi: u16,
         rotation: i16,
         output: &Path,
@@ -183,7 +183,7 @@ impl PageRenderer for Mutool {
     fn render_page(
         &self,
         pdf: &Path,
-        page: usize,
+        page: Page,
         dpi: u16,
         rotation: i16,
         output: &Path,
@@ -252,7 +252,7 @@ pub fn ocr_page(
     cache: &OcrCache,
     pdf: &Path,
     pdf_sha256: &str,
-    page: usize,
+    page: Page,
 ) -> Result<ExtractedPage> {
     let profile = resolve_profile(mutool, tesseract)?;
     ocr_page_with_profile(mutool, tesseract, cache, &profile, pdf, pdf_sha256, page)
@@ -266,11 +266,8 @@ pub fn ocr_page_with_profile(
     profile: &OcrProfile,
     pdf: &Path,
     pdf_sha256: &str,
-    page: usize,
+    page: Page,
 ) -> Result<ExtractedPage> {
-    if page == 0 {
-        bail!("PDF pages are one-based");
-    }
     let manifest = CacheManifest::new(pdf_sha256.to_owned(), page, profile.clone())?;
     if let Some(tsv) = cache.load(&manifest)? {
         return extracted_page(page, &tsv);
@@ -387,7 +384,7 @@ pub fn parse_orientation(output: &str) -> i16 {
         .unwrap_or(0)
 }
 
-fn extracted_page(page: usize, tsv: &str) -> Result<ExtractedPage> {
+fn extracted_page(page: Page, tsv: &str) -> Result<ExtractedPage> {
     Ok(parse_tsv(tsv)?.into_extracted_page(page))
 }
 

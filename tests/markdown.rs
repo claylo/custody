@@ -18,13 +18,22 @@ fn keeps_gfm_table_cells_separate() {
 }
 
 #[test]
+fn columns_count_unicode_characters_not_utf8_bytes() {
+    let units = parse_units("| café | target |\n|---|---|\n");
+    let target = units.iter().find(|unit| unit.text == "target").unwrap();
+
+    assert_eq!(target.line, 1);
+    assert_eq!(target.column, 9);
+}
+
+#[test]
 fn preserves_inline_text_and_collapses_breaks() {
     let units = parse_units("A **strong** [linked](https://example.test)\nline.");
 
     assert_eq!(units.len(), 1);
     assert_eq!(units[0].kind, UnitKind::Paragraph);
     assert_eq!(units[0].text, "A strong linked line.");
-    assert_eq!((units[0].line, units[0].column), (1, 1));
+    assert_eq!((units[0].line.get(), units[0].column.get()), (1, 1));
 }
 
 #[test]

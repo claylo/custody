@@ -7,6 +7,7 @@ use std::{
 
 use anyhow::{Result, bail};
 use receipts::{
+    coordinate::{ClaimIndex, Column, Line, Page},
     corpus::Corpus,
     evidence::{
         ClaimEvidence, DEFAULT_SOURCE, Evidence, Locator, MarkdownLocator, PdfBackend, PdfLocator,
@@ -25,13 +26,13 @@ struct FakePdf {
 }
 
 impl PdfTextProvider for FakePdf {
-    fn native_pages(&self, _pdf: &Path, page: Option<usize>) -> Result<Vec<ExtractedPage>> {
+    fn native_pages(&self, _pdf: &Path, page: Option<Page>) -> Result<Vec<ExtractedPage>> {
         let page = page.expect("validation requests one page");
         Ok(vec![ExtractedPage {
             page,
             text: self
                 .pages
-                .get(&(PdfBackend::MutoolNative, page))
+                .get(&(PdfBackend::MutoolNative, page.get()))
                 .cloned()
                 .unwrap_or_default(),
             spans: Vec::new(),
@@ -39,8 +40,8 @@ impl PdfTextProvider for FakePdf {
         }])
     }
 
-    fn ocr_page(&self, _pdf: &Path, _pdf_sha256: &str, page: usize) -> Result<ExtractedPage> {
-        let Some(text) = self.pages.get(&(PdfBackend::TesseractOcr, page)) else {
+    fn ocr_page(&self, _pdf: &Path, _pdf_sha256: &str, page: Page) -> Result<ExtractedPage> {
+        let Some(text) = self.pages.get(&(PdfBackend::TesseractOcr, page.get())) else {
             bail!("missing fake OCR page {page}");
         };
         Ok(ExtractedPage {
@@ -59,10 +60,10 @@ struct PerSourcePdf {
 }
 
 impl PdfTextProvider for PerSourcePdf {
-    fn native_pages(&self, pdf: &Path, page: Option<usize>) -> Result<Vec<ExtractedPage>> {
+    fn native_pages(&self, pdf: &Path, page: Option<Page>) -> Result<Vec<ExtractedPage>> {
         let page = page.expect("validation requests one page");
         let name = pdf.file_name().unwrap().to_string_lossy().into_owned();
-        let Some(text) = self.pages.get(&(name.clone(), page)) else {
+        let Some(text) = self.pages.get(&(name.clone(), page.get())) else {
             bail!("missing fake page {page} for {name}");
         };
         Ok(vec![ExtractedPage {
@@ -73,7 +74,7 @@ impl PdfTextProvider for PerSourcePdf {
         }])
     }
 
-    fn ocr_page(&self, _pdf: &Path, _pdf_sha256: &str, _page: usize) -> Result<ExtractedPage> {
+    fn ocr_page(&self, _pdf: &Path, _pdf_sha256: &str, _page: Page) -> Result<ExtractedPage> {
         bail!("OCR extraction was not requested")
     }
 }
@@ -125,7 +126,7 @@ fn locator_is_bounded_to_the_recorded_markdown_unit() {
     let mut summary = fixture.summary("Supported once", PdfBackend::MutoolNative);
     summary.evidence.as_mut().unwrap().claims[0].locators[0]
         .markdown
-        .line = 1;
+        .line = Line::new(1).unwrap();
     let report = validate_document(
         &fixture.corpus,
         &summary,
@@ -165,11 +166,11 @@ fn actual_pdf_hash_not_recorded_hash_keys_ocr() {
     }
 
     impl PdfTextProvider for HashCheckingPdf {
-        fn native_pages(&self, _pdf: &Path, _page: Option<usize>) -> Result<Vec<ExtractedPage>> {
+        fn native_pages(&self, _pdf: &Path, _page: Option<Page>) -> Result<Vec<ExtractedPage>> {
             bail!("native extraction was not requested")
         }
 
-        fn ocr_page(&self, _pdf: &Path, pdf_sha256: &str, page: usize) -> Result<ExtractedPage> {
+        fn ocr_page(&self, _pdf: &Path, pdf_sha256: &str, page: Page) -> Result<ExtractedPage> {
             if pdf_sha256 != self.expected {
                 bail!("unsafe PDF hash reached provider: {pdf_sha256}");
             }
@@ -322,7 +323,7 @@ fn each_named_source_resolves_against_its_own_files() {
                 ),
             ]),
             claims: vec![ClaimEvidence {
-                claim: 0,
+                claim: ClaimIndex::new(0),
                 claim_sha256: sha256_bytes(claim.as_bytes()),
                 locators: vec![
                     locator(DEFAULT_SOURCE, "the primary text"),
@@ -598,7 +599,7 @@ fn weak_section_does_not_fire_when_one_locator_is_not_weak() {
                 ),
             )]),
             claims: vec![ClaimEvidence {
-                claim: 0,
+                claim: ClaimIndex::new(0),
                 claim_sha256: sha256_bytes(claim.as_bytes()),
                 locators: vec![
                     weak_locator("First locator text", 3),
@@ -639,7 +640,7 @@ fn stale_review_claim_detected_during_validation() {
     let ev_hash = evidence_sha256(&evidence.claims[0]);
     summary.review = Some(Review {
         claims: vec![ReviewEntry {
-            claim: 0,
+            claim: ClaimIndex::new(0),
             claim_sha256: "0".repeat(64),
             evidence_sha256: ev_hash,
             verdict: Verdict::Supported,
@@ -670,7 +671,7 @@ fn stale_review_evidence_detected_during_validation() {
     let claim_hash = sha256_bytes(summary.claims[0].as_bytes());
     summary.review = Some(Review {
         claims: vec![ReviewEntry {
-            claim: 0,
+            claim: ClaimIndex::new(0),
             claim_sha256: claim_hash,
             evidence_sha256: "0".repeat(64),
             verdict: Verdict::Supported,
@@ -705,7 +706,7 @@ fn valid_review_produces_no_issues_during_validation() {
     let ev_hash = evidence_sha256(&summary.evidence.as_ref().unwrap().claims[0]);
     summary.review = Some(Review {
         claims: vec![ReviewEntry {
-            claim: 0,
+            claim: ClaimIndex::new(0),
             claim_sha256: claim_hash,
             evidence_sha256: ev_hash,
             verdict: Verdict::Supported,
@@ -727,7 +728,7 @@ fn valid_review_produces_no_issues_during_validation() {
 
 fn weak_locator(exact: &str, line: usize) -> Locator {
     let mut locator = locator(DEFAULT_SOURCE, exact);
-    locator.markdown.line = line;
+    locator.markdown.line = Line::new(line).unwrap();
     locator
 }
 
@@ -749,13 +750,13 @@ fn locator(source: &str, exact: &str) -> Locator {
         source: source.to_owned(),
         exact: exact.to_owned(),
         markdown: MarkdownLocator {
-            line: 1,
-            column: 1,
+            line: Line::new(1).unwrap(),
+            column: Column::new(1).unwrap(),
             unit: UnitKind::Paragraph,
             section: Vec::new(),
         },
         pdf: PdfLocator {
-            page: 1,
+            page: Page::new(1).unwrap(),
             backend: PdfBackend::MutoolNative,
         },
     }
@@ -828,7 +829,7 @@ impl Fixture {
                     },
                 )]),
                 claims: vec![ClaimEvidence {
-                    claim: 0,
+                    claim: ClaimIndex::new(0),
                     claim_sha256: sha256_bytes(claim.as_bytes()),
                     locators: vec![Locator {
                         source: DEFAULT_SOURCE.to_owned(),
@@ -839,7 +840,10 @@ impl Fixture {
                             unit: UnitKind::Paragraph,
                             section: Vec::new(),
                         },
-                        pdf: PdfLocator { page: 1, backend },
+                        pdf: PdfLocator {
+                            page: Page::new(1).unwrap(),
+                            backend,
+                        },
                     }],
                 }],
             }),

@@ -2,6 +2,7 @@
 
 pub mod cli;
 pub mod config;
+pub mod coordinate;
 pub mod corpus;
 pub mod evidence;
 pub mod hash;

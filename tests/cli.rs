@@ -4,6 +4,7 @@ use std::{
     process::{Command, Output},
 };
 
+use receipts::coordinate::{ClaimIndex, Column, Line, Page};
 use receipts::evidence::{ClaimEvidence, Locator, MarkdownLocator, PdfBackend, PdfLocator};
 use receipts::hash::{sha256_bytes, sha256_file};
 use receipts::markdown::UnitKind;
@@ -890,19 +891,19 @@ const TEXT_PDF: &str = "%PDF-1.4\n\
 
 fn fixture_evidence_sha256(exact: &str) -> String {
     let entry = ClaimEvidence {
-        claim: 0,
+        claim: ClaimIndex::new(0),
         claim_sha256: String::new(),
         locators: vec![Locator {
             source: "default".to_owned(),
             exact: exact.to_owned(),
             markdown: MarkdownLocator {
-                line: 1,
-                column: 1,
+                line: Line::new(1).unwrap(),
+                column: Column::new(1).unwrap(),
                 unit: UnitKind::Paragraph,
                 section: vec![],
             },
             pdf: PdfLocator {
-                page: 1,
+                page: Page::new(1).unwrap(),
                 backend: PdfBackend::MutoolNative,
             },
         }],
