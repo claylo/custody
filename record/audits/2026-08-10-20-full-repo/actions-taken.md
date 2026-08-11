@@ -2,12 +2,12 @@
 audit: 2026-08-10-20-full-repo
 last_updated: 2026-08-10
 status:
-  fixed: 17
+  fixed: 20
   mitigated: 0
   accepted: 0
   disputed: 0
   deferred: 0
-  open: 31
+  open: 28
 ---
 
 # Actions Taken: Full repository — Rust source (src/, tests/), dependencies, configuration (.config/, justfile, Cargo.toml, deny.toml), and documented behavior (README.md, receipts.yaml)
@@ -208,3 +208,42 @@ Source-integrity issues now emit the declared stable `source_*` codes and carry 
 `propose --format json` now always emits a `{"summaries": [...]}` envelope, removing the count-dependent single-summary object. The CLI Spec declares that same top-level field, and the README documents the unconditional contract.
 
 Integration coverage pins the exact top-level key set for empty, one-summary, and two-summary corpora while retaining the mixed-success batch behavior added in the preceding remediation.
+
+---
+
+## 2026-08-10 — Preserve authoring output defaults
+
+**Disposition:** fixed
+**Addresses:** [default-output-becomes-json-when-redirected](README.md#default-output-becomes-json-when-redirected)
+**Commit:** 437e841dc4550e6dfd82ef21747853eab1ef4ad1
+**Author:** Codex
+
+`locate` and `propose` now default to human-readable output regardless of whether stdout is attached to a terminal. Machine consumers must request JSON explicitly with `--format json`, while status-oriented commands retain their terminal-aware output selection.
+
+An integration regression captures stdout for both authoring commands without a format flag and verifies that each preserves the documented human output contract.
+
+---
+
+## 2026-08-10 — Restrict configuration to repository-scoped sources
+
+**Disposition:** fixed
+**Addresses:** [undocumented-user-config-and-environment-layers](README.md#undocumented-user-config-and-environment-layers)
+**Commit:** 1d5a9973f79c52772cea1a14b7f4c69d51e4a4c3
+**Author:** Codex
+
+Disabled Librebar's implicit user configuration and process-environment overlays. Receipts configuration now comes only from built-in defaults, project discovery, and an explicit `--config` path, matching the repository-scoped evidence contract documented in the README.
+
+A child-process regression sets a conflicting `RECEIPTS_CORPUS__SUMMARIES` value and proves it cannot override the project configuration.
+
+---
+
+## 2026-08-10 — Expose the summary ID grammar
+
+**Disposition:** fixed
+**Addresses:** [summary-id-constraints-undocumented](README.md#summary-id-constraints-undocumented)
+**Commit:** 69cfb9983218474ef91e0a078900b2091181b71a
+**Author:** Codex
+
+Documented the accepted summary ID grammar in the README and repeated it in runtime rejection messages and CLI schema metadata. IDs must contain at least three lowercase ASCII letters, digits, or interior hyphens, with no leading or trailing hyphen.
+
+The corpus regression now covers traversal, uppercase, undersized, and leading-hyphen inputs and requires the actionable grammar explanation for every rejection.
