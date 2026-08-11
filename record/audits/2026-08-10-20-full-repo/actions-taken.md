@@ -2,12 +2,12 @@
 audit: 2026-08-10-20-full-repo
 last_updated: 2026-08-11
 status:
-  fixed: 39
+  fixed: 42
   mitigated: 0
-  accepted: 0
+  accepted: 1
   disputed: 0
   deferred: 0
-  open: 9
+  open: 5
 ---
 
 # Actions Taken: Full repository — Rust source (src/, tests/), dependencies, configuration (.config/, justfile, Cargo.toml, deny.toml), and documented behavior (README.md, receipts.yaml)
@@ -479,3 +479,53 @@ All third-party actions are pinned to immutable commit SHAs, and `actionlint` va
 Removed global dotenv loading from the justfile so a repository-supplied `.env` can no longer inject Cargo execution variables into the documented build recipes. Added `.env` to `.gitignore` to prevent accidental local commits.
 
 `git check-ignore` confirms the file is excluded, and the strengthened complete gate remains green and non-mutating.
+
+---
+
+## 2026-08-11 — Align the license allowlist with the dependency tree
+
+**Disposition:** fixed
+**Addresses:** [license-allowlist-inherited-from-absent-dependency-tree](README.md#license-allowlist-inherited-from-absent-dependency-tree)
+**Commit:** a7e3a0a46db2295ed55a1b7012a6b6f9eb1b5568
+**Author:** Codex
+
+Renamed the dependency policy header for `receipts`, removed eight license allowances absent from the current lockfile, and changed unused allowances from silently accepted to warnings. Future dependency-policy drift will now appear in the documented gate.
+
+`just deny` reports advisories, bans, licenses, and sources as compliant. Its only remaining warning is the separately reviewed transitive `syn` 2/3 split.
+
+---
+
+## 2026-08-11 — Pin nested summary discovery behavior
+
+**Disposition:** fixed
+**Addresses:** [summary-discovery-recursion-untested](README.md#summary-discovery-recursion-untested)
+**Commit:** 199d519125c6dda877fe02661807ef60c7e10d08
+**Author:** Codex
+
+Extended the configured nested-template regression with a non-summary decoy and exact audit counters, proving only the intended `summary.yaml` is discovered. Added a second regression showing that a summary below the template's allowed depth is rejected rather than interpreted as a slash-containing ID.
+
+The complete gate now passes 203 tests.
+
+---
+
+## 2026-08-11 — Pin literal non-origin Markdown coordinates
+
+**Disposition:** fixed
+**Addresses:** [markdown-coordinates-only-pinned-at-line-one](README.md#markdown-coordinates-only-pinned-at-line-one)
+**Commit:** 30115720c3c8e2e84334013dbb28e37efffd9e23
+**Author:** Codex
+
+Added a literal `(3, 1)` assertion for the second paragraph in a multi-unit document. Together with the existing Unicode-aware table-cell assertion at `(1, 9)`, the suite now independently pins both a line after the first and a column after the first instead of relying only on coordinate round trips.
+
+---
+
+## 2026-08-11 — Retain the actionable transitive syn warning
+
+**Disposition:** accepted
+**Addresses:** [transitive-syn-duplicate-is-not-actionable](README.md#transitive-syn-duplicate-is-not-actionable)
+**Commit:** N/A — no code change recommended
+**Author:** Codex
+
+Accepted the compile-time-only `syn` 2/3 duplication because neither version is selected directly by `receipts`: `syn` 2 arrives only through `librebar`'s `tracing-attributes`, while the Clap, Serde, and Thiserror derives already use `syn` 3. Adding a cargo-deny skip would hide the upstream convergence signal and later become a stale-policy warning.
+
+`cargo tree -d` also confirms the existing `supports-color` 2/3 skip remains necessary through `owo-colors`. Re-check this acceptance after the next `librebar` dependency update.
