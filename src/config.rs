@@ -21,6 +21,37 @@ pub struct Config {
     pub terms: crate::terms::Terms,
     pub coverage: CoverageConfig,
     pub sections: SectionsConfig,
+    pub normalize: NormalizeConfig,
+}
+
+/// Optional text normalization rules, applied identically to every side of a
+/// comparison. See [`crate::normalize`] for the rules themselves.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct NormalizeConfig {
+    /// Rejoin words broken by a hyphen at a line end.
+    pub dehyphenate: bool,
+    /// Fold typographic quotes to their ASCII forms.
+    pub quotes: bool,
+}
+
+impl Default for NormalizeConfig {
+    fn default() -> Self {
+        Self {
+            dehyphenate: true,
+            quotes: true,
+        }
+    }
+}
+
+impl NormalizeConfig {
+    #[must_use]
+    pub const fn options(&self) -> crate::normalize::NormalizeOptions {
+        crate::normalize::NormalizeOptions {
+            dehyphenate: self.dehyphenate,
+            quotes: self.quotes,
+        }
+    }
 }
 
 /// Path templates resolved against the corpus root. `{id}` is substituted.

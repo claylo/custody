@@ -30,6 +30,7 @@ pub struct Corpus {
     pdf_config: crate::config::PdfConfig,
     coverage_config: crate::config::CoverageConfig,
     sections_config: crate::config::SectionsConfig,
+    normalize_config: crate::config::NormalizeConfig,
     weak_sections: Vec<String>,
 }
 
@@ -65,8 +66,15 @@ impl Corpus {
             pdf_config: config.pdf,
             coverage_config: config.coverage,
             sections_config: config.sections,
+            normalize_config: config.normalize,
             weak_sections,
         })
+    }
+
+    /// Text normalization rules declared by this corpus.
+    #[must_use]
+    pub const fn normalize_config(&self) -> &crate::config::NormalizeConfig {
+        &self.normalize_config
     }
 
     /// Vocabulary this corpus uses for a claim.

@@ -308,6 +308,7 @@ fn doctor_reports_corpus_and_executables() {
     assert!(output.contains("tesseract: ok"));
     assert!(output.contains("native profile: ok (mutool-native)"));
     assert!(output.contains("OCR profile: ok (tesseract-eng-300dpi-v2)"));
+    assert!(output.contains("normalize: ok (whitespace, dehyphenate=on, quotes=on)"));
 }
 
 #[test]
@@ -327,12 +328,14 @@ fn doctor_json_declares_the_machine_contract() {
             "mutool_path",
             "mutool_status",
             "native_profile",
+            "normalize",
             "ocr_profile",
             "tesseract",
             "tesseract_path",
             "tesseract_status",
         ]
     );
+    assert_eq!(report["normalize"], "whitespace, dehyphenate=on, quotes=on");
 }
 
 #[cfg(unix)]

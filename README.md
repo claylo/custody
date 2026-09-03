@@ -4,8 +4,8 @@ Deterministic evidence validation for LLM summaries of PDF sources.
 
 `receipts` binds each claim in a summary document to literal text in both the
 converted Markdown and the canonical PDF. It is deliberately strict: after
-Unicode whitespace-run normalization, every locator must occur exactly once
-inside one Markdown semantic unit and exactly once on one physical PDF page.
+[normalization](#normalization), every locator must occur exactly once inside
+one Markdown semantic unit and exactly once on one physical PDF page.
 Ambiguity is an error, not an occurrence to choose from.
 
 It does not judge whether a passage logically supports a claim. It proves the
@@ -80,6 +80,10 @@ coverage:
 
 sections:
   weak: ["Limitations", "Future Work", "Related Work"]
+
+normalize:
+  dehyphenate: true
+  quotes: true
 ```
 
 Set `pdf.tools.mutool` or `pdf.tools.tesseract` to an absolute executable path
@@ -135,6 +139,29 @@ locator for a claim sits under a weak section (e.g., "Limitations"), a
 `weak_section_only` warning fires. This is permanently a warning — heading
 hierarchy from converters is too unreliable to gate on.
 
+### Normalization
+
+Every literal, Markdown unit, and PDF page passes through the same
+normalization before comparison, so a locator only has to match what both
+sides become. Whitespace collapsing is always on; the other two rules are
+configured under `normalize:` and default to on.
+
+- **whitespace** — every run of Unicode whitespace becomes one ASCII space.
+- **dehyphenate** — a hyphen at the end of a line followed by a line starting
+  with a lowercase letter is a typesetter's break inside a word; the hyphen and
+  the break are removed (`attach-` / `ment` → `attachment`). Only whitespace
+  runs that contain a line break qualify, so `self- report` on one line is
+  untouched, and `Main-` / `Hesse` keeps its hyphen because the next line
+  starts with a capital.
+- **quotes** — `‘ ’ ‚ ‛` fold to `'` and `“ ” „ ‟` fold to `"`. PDF text
+  layers carry the typographic forms and most converters emit the straight
+  ones; without folding, any literal containing an apostrophe fails on one
+  side.
+
+Nothing else changes: ligatures, dashes, minus signs, superscripts, and OCR
+errors are compared as they are. Normalization rules are a property of the
+corpus and are read once at startup; `doctor` reports the active set.
+
 ## Run
 
 ```bash
@@ -144,6 +171,7 @@ receipts check [ID...]
 receipts check --require-review [ID...]
 receipts audit [--strict] [ID...]
 receipts propose [ID...] [--all] [--candidates N]
+receipts extract ID [--source NAME] [--write [--force]]
 receipts schema
 receipts completions SHELL
 ```
@@ -218,6 +246,42 @@ Multi-summary runs continue past malformed summaries and filename/ID
 mismatches. Aggregate JSON keeps the successful proposals alongside per-ID
 issues; human output writes those issues to stderr. Either mode exits non-zero
 after the batch if any summary failed.
+
+### extract
+
+Emits Markdown built from the PDF's own native text layer, through the same
+MuPDF structured-text pass and the same normalization that `locate` and
+`check` use. A literal copied from this Markdown therefore agrees with the PDF
+by construction: no converter re-reading the page, no quote flattening, no
+dropped signs.
+
+The output is YAML frontmatter (`id`, `source_format: pdf-native`, the PDF's
+corpus-relative path and SHA-256, the extractor and profile, the active
+normalization rules), then one `## Page N` heading per physical page and one
+paragraph per MuPDF text block. Every page gets a heading, even an empty one,
+so a locator's section path always names the physical page. There are no
+tables and no other headings; keep a converter's Markdown as a separate source
+for table cells.
+
+Without `--write` the Markdown goes to stdout regardless of `--format`. With
+`--write` it is written to the first Markdown template of `--source`, creating
+parent directories, and the report (path, pages, paragraphs, SHA-256) follows
+the usual text/JSON rules. An existing file is never replaced without
+`--force`. The usual pattern is a dedicated source:
+
+```yaml
+corpus:
+  sources:
+    default:
+      markdown: ["md/{id}/{id}.md"]     # converter output, for tables
+      pdf: "pdfs/{id}.pdf"
+    native:
+      markdown: ["native-md/{id}.md"]   # receipts extract --source native --write
+      pdf: "pdfs/{id}.pdf"
+```
+
+Only born-digital pages produce useful text. A scanned page yields whatever
+OCR layer the PDF already carries, or nothing.
 
 ### schema
 
@@ -297,8 +361,10 @@ every evidence-bearing summary and skips the rest. `audit` reports missing
 evidence without failing; `audit --strict` makes it fatal.
 
 Only `receipts` should produce normalized literals, SHA-256 values, coordinates,
-pages, and backend names. Normalization replaces each Unicode whitespace run
-with one ASCII space and changes nothing else.
+pages, and backend names. Normalization is the fixed set of rules described
+under [Normalization](#normalization); the corpus configuration decides which
+optional rules are on, and a record validates only under the rules it was made
+with.
 
 ## Review
 

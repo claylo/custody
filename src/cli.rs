@@ -1,4 +1,5 @@
 use std::{
+    fmt::Write as _,
     fs,
     path::{Path, PathBuf},
 };
@@ -39,8 +40,9 @@ use crate::{
 
 Each claim in a summary document is bound to a literal string that must occur
 exactly once inside one Markdown semantic unit and exactly once on one physical
-PDF page, after Unicode whitespace-run normalization and nothing else.
-Ambiguity is an error, not an occurrence to choose from.
+PDF page, after normalization: Unicode whitespace runs collapse to one space,
+and by configuration line-end hyphenation is rejoined and typographic quotes
+fold to ASCII. Ambiguity is an error, not an occurrence to choose from.
 
 Corpus layout is declared in receipts.yaml, discovered by walking up from the
 working directory."
@@ -67,6 +69,33 @@ enum Command {
     Audit(AuditArgs),
     /// Suggest candidate locators for claims lacking evidence.
     Propose(ProposeArgs),
+    /// Emit Markdown from a PDF's native text layer, one paragraph per block.
+    Extract(ExtractArgs),
+}
+
+#[derive(Debug, Args)]
+struct ExtractArgs {
+    id: String,
+    /// Source whose PDF template locates the input and whose first Markdown
+    /// template is the destination for --write.
+    #[arg(long, default_value = DEFAULT_SOURCE)]
+    source: String,
+    /// Write to the source's Markdown path instead of stdout.
+    #[arg(long)]
+    write: bool,
+    /// Replace an existing Markdown file.
+    #[arg(long, requires = "write")]
+    force: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct ExtractReport {
+    id: String,
+    source: String,
+    path: String,
+    pages: usize,
+    paragraphs: usize,
+    sha256: String,
 }
 
 #[derive(Debug, Args)]
@@ -223,6 +252,7 @@ pub fn run() -> Result<()> {
     let cwd = std::env::current_dir().context("failed to read current directory")?;
     let explicit = config_path.as_ref().map(|p| Path::new(p.as_str()));
     let corpus = Corpus::discover_from(&cwd, explicit)?;
+    crate::normalize::configure(corpus.normalize_config().options());
     let format = if matches!(&cli.command, Command::Locate(_) | Command::Propose(_)) {
         cli.common.output_format_for(true)
     } else {
@@ -262,6 +292,104 @@ pub fn run() -> Result<()> {
             preflight_toolchain(&tools)?;
             propose_cmd(&corpus, &tools, &args, json, quiet)
         }
+        Command::Extract(args) => {
+            preflight_toolchain(&tools)?;
+            extract(&corpus, &tools, &args, json, quiet)
+        }
+    }
+}
+
+/// Render a PDF's native text as Markdown: YAML frontmatter, then one
+/// `## Page N` heading per physical page and one paragraph per `MuPDF` text
+/// block, each already normalized. Every page gets a heading, even an empty
+/// one, so the section path always names the physical page.
+fn extract(
+    corpus: &Corpus,
+    tools: &PdfTools,
+    args: &ExtractArgs,
+    json: bool,
+    quiet: bool,
+) -> Result<()> {
+    let pdf_path = corpus.pdf_path_for(&args.id, &args.source)?;
+    if !pdf_path.is_file() {
+        bail!("canonical PDF is missing: {}", pdf_path.display());
+    }
+    let pdf_sha256 = sha256_file(&pdf_path)?;
+    let pages = tools.mutool.native_blocks(&pdf_path)?;
+    let mutool_version = tools.mutool.version()?;
+    let options = corpus.normalize_config().options();
+
+    let mut markdown = String::new();
+    // Writing to a String cannot fail; the `let _ =` acknowledges the Result.
+    let _ = writeln!(markdown, "---");
+    let _ = writeln!(markdown, "id: {}", args.id);
+    let _ = writeln!(markdown, "source_format: pdf-native");
+    let _ = writeln!(markdown, "source: {}", relative(corpus, &pdf_path));
+    let _ = writeln!(markdown, "source_sha256: {pdf_sha256}");
+    let _ = writeln!(
+        markdown,
+        "extractor: receipts {} ({}, {mutool_version})",
+        env!("CARGO_PKG_VERSION"),
+        crate::pdf::mutool::PROFILE_NAME
+    );
+    let _ = writeln!(markdown, "normalize: \"{}\"", options.describe());
+    let _ = writeln!(markdown, "---");
+    let mut paragraphs = 0;
+    for (index, blocks) in pages.iter().enumerate() {
+        let _ = write!(markdown, "\n## Page {}\n", index + 1);
+        for block in blocks {
+            markdown.push('\n');
+            markdown.push_str(block);
+            markdown.push('\n');
+            paragraphs += 1;
+        }
+    }
+
+    if !args.write {
+        print_line(format_args!("{}", markdown.trim_end()))?;
+        return Ok(());
+    }
+
+    let destination = corpus
+        .markdown_candidates_for(&args.id, &args.source)?
+        .into_iter()
+        .next()
+        .with_context(|| format!("source {:?} declares no Markdown template", args.source))?;
+    if destination.exists() && !args.force {
+        bail!(
+            "{} already exists; pass --force to replace it",
+            destination.display()
+        );
+    }
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    let staging = destination.with_extension(format!("md.{}.tmp", std::process::id()));
+    fs::write(&staging, &markdown)
+        .with_context(|| format!("failed to write {}", staging.display()))?;
+    fs::rename(&staging, &destination).with_context(|| {
+        let _ = fs::remove_file(&staging);
+        format!("failed to move extraction into {}", destination.display())
+    })?;
+
+    let report = ExtractReport {
+        id: args.id.clone(),
+        source: args.source.clone(),
+        path: relative(corpus, &destination),
+        pages: pages.len(),
+        paragraphs,
+        sha256: crate::hash::sha256_bytes(markdown.as_bytes()),
+    };
+    if json {
+        print_json(&report)
+    } else if quiet {
+        Ok(())
+    } else {
+        print_line(format_args!(
+            "wrote {} ({} pages, {} paragraphs)",
+            report.path, report.pages, report.paragraphs
+        ))
     }
 }
 
@@ -309,7 +437,40 @@ fn schema_metadata() -> SchemaMetadata {
                     OutputField::new("ocr_profile", "string")
                         .description("OCR extraction profile name"),
                 )
+                .output_field(
+                    OutputField::new("normalize", "string")
+                        .description("Active text normalization rules"),
+                )
                 .output_field(OutputField::new("cache", "string").description("Cache root path")),
+        )
+        .command(
+            "extract",
+            CommandMetadata::new()
+                .mutating(true)
+                .stability(Stability::Stable)
+                .output_field(
+                    OutputField::new("id", "string").description("Summary ID that was extracted"),
+                )
+                .output_field(
+                    OutputField::new("source", "string")
+                        .description("Source whose templates were used"),
+                )
+                .output_field(
+                    OutputField::new("path", "string")
+                        .description("Corpus-relative Markdown path written (--write only)"),
+                )
+                .output_field(
+                    OutputField::new("pages", "integer").description("Physical pages extracted"),
+                )
+                .output_field(
+                    OutputField::new("paragraphs", "integer")
+                        .description("Non-empty text blocks emitted"),
+                )
+                .output_field(
+                    OutputField::new("sha256", "string")
+                        .description("SHA-256 of the written Markdown"),
+                )
+                .example(CommandExample::new(["smith-2019", "--source", "native", "--write"])),
         )
         .command(
             "locate",
@@ -447,6 +608,7 @@ fn doctor(corpus: &Corpus, tools: &PdfTools, json: bool, quiet: bool) -> Result<
     );
     let native_profile_value = crate::pdf::mutool::PROFILE_NAME.to_owned();
     let ocr_profile_value = crate::pdf::tesseract::profile_name(&ocr.lang, ocr_dpi);
+    let normalize_value = corpus.normalize_config().options().describe();
 
     fs::create_dir_all(tools.cache.root()).with_context(|| {
         format!(
@@ -486,6 +648,7 @@ fn doctor(corpus: &Corpus, tools: &PdfTools, json: bool, quiet: bool) -> Result<
         ("tesseract", tesseract_status.as_str(), &tesseract_value),
         ("native profile", "ok", &native_profile_value),
         ("OCR profile", "ok", &ocr_profile_value),
+        ("normalize", "ok", &normalize_value),
         ("cache", if cache_ok { "ok" } else { "error" }, &cache_value),
     ];
 
@@ -501,6 +664,7 @@ fn doctor(corpus: &Corpus, tools: &PdfTools, json: bool, quiet: bool) -> Result<
             "tesseract": tesseract_value,
             "native_profile": native_profile_value,
             "ocr_profile": ocr_profile_value,
+            "normalize": normalize_value,
             "cache": cache_value,
         });
         print_json(&report)?;

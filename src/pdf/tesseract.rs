@@ -325,12 +325,21 @@ pub fn parse_tsv(source: &str) -> Result<ParsedTsv> {
         .context("Tesseract TSV has no conf column")?;
     let geometry_indexes = ["left", "top", "width", "height"]
         .map(|name| columns.iter().position(|column| *column == name));
-    let mut words = Vec::new();
+    // Tesseract numbers lines within paragraphs within blocks; a change in
+    // that triple is a visual line break, kept as `\n` for dehyphenation.
+    let line_key_indexes = ["block_num", "par_num", "line_num"]
+        .map(|name| columns.iter().position(|column| *column == name));
+    let mut text_buffer = String::new();
+    let mut previous_line_key: Option<[&str; 3]> = None;
     let mut confidences = Vec::new();
     let mut spans = Vec::new();
 
     let geo_indexes: Option<[usize; 4]> = match geometry_indexes {
         [Some(a), Some(b), Some(c), Some(d)] => Some([a, b, c, d]),
+        _ => None,
+    };
+    let line_indexes: Option<[usize; 3]> = match line_key_indexes {
+        [Some(a), Some(b), Some(c)] => Some([a, b, c]),
         _ => None,
     };
     for line in lines {
@@ -341,7 +350,14 @@ pub fn parse_tsv(source: &str) -> Result<ParsedTsv> {
         if text.is_empty() {
             continue;
         }
-        words.push(text);
+        let line_key = line_indexes
+            .and_then(|[bi, pi, li]| Some([*fields.get(bi)?, *fields.get(pi)?, *fields.get(li)?]));
+        if !text_buffer.is_empty() {
+            let same_line = line_key.is_some() && line_key == previous_line_key;
+            text_buffer.push(if same_line { ' ' } else { '\n' });
+        }
+        previous_line_key = line_key;
+        text_buffer.push_str(text);
         let bbox = geo_indexes.and_then(|[li, ti, wi, hi]| {
             Some(PdfBbox {
                 x: fields.get(li)?.parse::<f64>().ok()?,
@@ -367,7 +383,7 @@ pub fn parse_tsv(source: &str) -> Result<ParsedTsv> {
         confidences.iter().sum::<f64>() / f64::from(count)
     });
     Ok(ParsedTsv {
-        text: normalize(&words.join(" ")),
+        text: normalize(&text_buffer),
         mean_confidence,
         spans,
     })

@@ -177,9 +177,11 @@ pub fn parse_units(source: &str) -> Vec<MarkdownUnit> {
                     builder.text.push_str(&text);
                 }
             }
+            // Line breaks stay line breaks until normalization, which needs
+            // them to recognise a hyphenated word broken across lines.
             Event::SoftBreak | Event::HardBreak if image_depth == 0 && html_block_depth == 0 => {
                 if let Some(builder) = active.as_mut() {
-                    builder.text.push(' ');
+                    builder.text.push('\n');
                 }
             }
             Event::InlineHtml(tag) if image_depth == 0 && html_block_depth == 0 => {
@@ -190,7 +192,7 @@ pub fn parse_units(source: &str) -> Vec<MarkdownUnit> {
                     .is_some_and(|prefix| prefix.eq_ignore_ascii_case(b"<br"))
                     && let Some(builder) = active.as_mut()
                 {
-                    builder.text.push(' ');
+                    builder.text.push('\n');
                 }
             }
             Event::FootnoteReference(label) if image_depth == 0 && html_block_depth == 0 => {

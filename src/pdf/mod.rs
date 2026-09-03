@@ -163,20 +163,33 @@ pub struct PdfBbox {
 }
 
 /// Return the union of fragment boxes touched by one unique exact match.
+///
+/// Spans are joined with line breaks and normalized cumulatively, so the
+/// searchable text is exactly the page text the match was found in, including
+/// any dehyphenation across a span boundary. Each span's byte range is the
+/// growth of the normalized prefix when that span is appended; when the
+/// previous span's trailing hyphen was dropped, the range is widened by one
+/// byte to cover it.
 #[must_use]
 pub fn matching_bbox(page: &ExtractedPage, exact: &str) -> Option<PdfBbox> {
+    let mut raw = String::new();
     let mut searchable = String::new();
     let mut ranges = Vec::new();
     for span in &page.spans {
-        let text = crate::normalize::normalize(&span.text);
-        if text.is_empty() {
+        if crate::normalize::normalize(&span.text).is_empty() {
             continue;
         }
-        if !searchable.is_empty() {
-            searchable.push(' ');
+        if !raw.is_empty() {
+            raw.push('\n');
         }
-        let start = searchable.len();
-        searchable.push_str(&text);
+        raw.push_str(&span.text);
+        let grown = crate::normalize::normalize(&raw);
+        let mut start = searchable.len();
+        if !grown.starts_with(&searchable) {
+            // Dehyphenation removed the previous span's trailing hyphen.
+            start = start.saturating_sub(1);
+        }
+        searchable = grown;
         ranges.push((start..searchable.len(), span.bbox));
     }
     let mut matches = searchable.match_indices(exact);

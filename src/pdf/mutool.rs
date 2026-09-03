@@ -70,6 +70,17 @@ impl Mutool {
         Ok(pages)
     }
 
+    /// Extract native text as per-page paragraphs, for `receipts extract`.
+    pub fn native_blocks(&self, pdf: &Path) -> Result<Vec<PageBlocks>> {
+        let mut command = Command::new(self.executable()?);
+        command.args(["draw", "-q", "-F", "stext.json", "-o", "-"]);
+        command.arg(pdf);
+        let output = run(&mut command, "MuPDF structured-text extraction")?;
+        parse_stext_blocks(
+            std::str::from_utf8(&output.stdout).context("MuPDF output was not UTF-8")?,
+        )
+    }
+
     /// Render one page to a PNG suitable for deterministic OCR.
     pub fn render_page(
         &self,
@@ -103,12 +114,11 @@ impl Mutool {
 }
 
 /// Parse `MuPDF`'s `stext.json` output without repairing token fragmentation.
+///
+/// Lines are joined with `\n` before normalization so that a word hyphenated
+/// across a line break can be rejoined by the dehyphenation rule.
 pub fn parse_stext_json(source: &str) -> Result<Vec<ExtractedPage>> {
-    let document: StextDocument = serde_json::from_str(source)
-        .map_err(|error| anyhow!("failed to parse MuPDF structured-text JSON: {error}"))?;
-    if document.pages.is_empty() {
-        bail!("MuPDF structured-text JSON contains no pages");
-    }
+    let document = parse_document(source)?;
 
     document
         .pages
@@ -125,7 +135,7 @@ pub fn parse_stext_json(source: &str) -> Result<Vec<ExtractedPage>> {
                 .iter()
                 .map(|line| line.text.as_str())
                 .collect::<Vec<_>>()
-                .join(" ");
+                .join("\n");
             Ok(ExtractedPage {
                 page: Page::new(index + 1).expect("enumerated pages are one-based"),
                 text: normalize(&text),
@@ -140,6 +150,50 @@ pub fn parse_stext_json(source: &str) -> Result<Vec<ExtractedPage>> {
             })
         })
         .collect()
+}
+
+/// One page of native text as a list of paragraphs, each already normalized.
+///
+/// A paragraph is one `MuPDF` text block with its lines joined through the
+/// normalizer, so dehyphenation and quote folding have been applied. Empty
+/// blocks are dropped; a page with no text yields an empty list.
+pub type PageBlocks = Vec<String>;
+
+/// Parse `MuPDF`'s `stext.json` output into per-page, per-block text.
+pub fn parse_stext_blocks(source: &str) -> Result<Vec<PageBlocks>> {
+    let document = parse_document(source)?;
+    document
+        .pages
+        .into_iter()
+        .map(|page| -> Result<PageBlocks> {
+            let mut blocks = Vec::new();
+            for block in page.blocks {
+                if block.kind != "text" {
+                    continue;
+                }
+                let lines = block.lines.context("MuPDF text block is missing lines")?;
+                let joined = lines
+                    .iter()
+                    .map(|line| line.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let text = normalize(&joined);
+                if !text.is_empty() {
+                    blocks.push(text);
+                }
+            }
+            Ok(blocks)
+        })
+        .collect()
+}
+
+fn parse_document(source: &str) -> Result<StextDocument> {
+    let document: StextDocument = serde_json::from_str(source)
+        .map_err(|error| anyhow!("failed to parse MuPDF structured-text JSON: {error}"))?;
+    if document.pages.is_empty() {
+        bail!("MuPDF structured-text JSON contains no pages");
+    }
+    Ok(document)
 }
 
 #[derive(Debug, Deserialize)]
