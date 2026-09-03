@@ -14,12 +14,12 @@ fn test_locator(exact: &str, page: usize) -> Locator {
     Locator {
         source: DEFAULT_SOURCE.to_owned(),
         exact: exact.to_owned(),
-        markdown: MarkdownLocator {
+        markdown: Some(MarkdownLocator {
             line: Line::new(1).unwrap(),
             column: Column::new(1).unwrap(),
             unit: UnitKind::Paragraph,
             section: vec![],
-        },
+        }),
         pdf: PdfLocator {
             page: Page::new(page).unwrap(),
             backend: PdfBackend::MutoolNative,
@@ -61,10 +61,10 @@ fn test_evidence(claims: &[String]) -> Evidence {
         sources: BTreeMap::from([(
             DEFAULT_SOURCE.to_owned(),
             SourcePair {
-                markdown: SourceRecord {
+                markdown: Some(SourceRecord {
                     source: "md/test.md".to_owned(),
                     sha256: "a".repeat(64),
-                },
+                }),
                 pdf: SourceRecord {
                     source: "pdfs/test.pdf".to_owned(),
                     sha256: "b".repeat(64),

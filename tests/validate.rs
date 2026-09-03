@@ -177,6 +177,8 @@ fn locator_is_bounded_to_the_recorded_markdown_unit() {
     let mut summary = fixture.summary("Supported once", PdfBackend::MutoolNative);
     summary.evidence.as_mut().unwrap().claims[0].locators[0]
         .markdown
+        .as_mut()
+        .unwrap()
         .line = Line::new(1).unwrap();
     let report = validate_document(
         &fixture.corpus,
@@ -296,7 +298,8 @@ fn rejects_canonical_source_symlinks_that_escape_the_corpus() {
     fs::remove_file(&markdown_path).unwrap();
     symlink(outside.path(), &markdown_path).unwrap();
     let mut summary = fixture.summary("Supported once", PdfBackend::MutoolNative);
-    default_pair(&mut summary).markdown.sha256 = sha256_file(outside.path()).unwrap();
+    default_pair(&mut summary).markdown.as_mut().unwrap().sha256 =
+        sha256_file(outside.path()).unwrap();
     let report = validate_document(
         &fixture.corpus,
         &summary,
@@ -445,6 +448,8 @@ fn stale_section_is_reported_when_path_changes() {
     let mut summary = fixture.summary("Supported once", PdfBackend::MutoolNative);
     summary.evidence.as_mut().unwrap().claims[0].locators[0]
         .markdown
+        .as_mut()
+        .unwrap()
         .section = vec!["Results".to_owned(), "Discussion".to_owned()];
 
     let report = validate_document(
@@ -472,6 +477,8 @@ fn matching_section_produces_no_issue() {
     let mut summary = fixture.summary("Supported once", PdfBackend::MutoolNative);
     summary.evidence.as_mut().unwrap().claims[0].locators[0]
         .markdown
+        .as_mut()
+        .unwrap()
         .section = vec!["Results".to_owned(), "Onset".to_owned()];
 
     let report = validate_document(
@@ -779,16 +786,16 @@ fn valid_review_produces_no_issues_during_validation() {
 
 fn weak_locator(exact: &str, line: usize) -> Locator {
     let mut locator = locator(DEFAULT_SOURCE, exact);
-    locator.markdown.line = Line::new(line).unwrap();
+    locator.markdown.as_mut().unwrap().line = Line::new(line).unwrap();
     locator
 }
 
 fn source_pair(corpus: &Corpus, markdown: &str, pdf: &str) -> SourcePair {
     SourcePair {
-        markdown: SourceRecord {
+        markdown: Some(SourceRecord {
             source: markdown.to_owned(),
             sha256: sha256_file(&corpus.root().join(markdown)).unwrap(),
-        },
+        }),
         pdf: SourceRecord {
             source: pdf.to_owned(),
             sha256: sha256_file(&corpus.root().join(pdf)).unwrap(),
@@ -800,12 +807,12 @@ fn locator(source: &str, exact: &str) -> Locator {
     Locator {
         source: source.to_owned(),
         exact: exact.to_owned(),
-        markdown: MarkdownLocator {
+        markdown: Some(MarkdownLocator {
             line: Line::new(1).unwrap(),
             column: Column::new(1).unwrap(),
             unit: UnitKind::Paragraph,
             section: Vec::new(),
-        },
+        }),
         pdf: PdfLocator {
             page: Page::new(1).unwrap(),
             backend: PdfBackend::MutoolNative,
@@ -868,10 +875,10 @@ impl Fixture {
                 sources: BTreeMap::from([(
                     DEFAULT_SOURCE.to_owned(),
                     SourcePair {
-                        markdown: SourceRecord {
+                        markdown: Some(SourceRecord {
                             source: "md/smith-2019/smith-2019.md".to_owned(),
                             sha256: sha256_bytes(self.markdown.as_bytes()),
-                        },
+                        }),
                         pdf: SourceRecord {
                             source: "pdfs/smith-2019.pdf".to_owned(),
                             sha256: sha256_file(&self.corpus.root().join("pdfs/smith-2019.pdf"))
@@ -885,12 +892,12 @@ impl Fixture {
                     locators: vec![Locator {
                         source: DEFAULT_SOURCE.to_owned(),
                         exact: exact.to_owned(),
-                        markdown: MarkdownLocator {
+                        markdown: Some(MarkdownLocator {
                             line: unit.line,
                             column: unit.column,
                             unit: UnitKind::Paragraph,
                             section: Vec::new(),
-                        },
+                        }),
                         pdf: PdfLocator {
                             page: Page::new(1).unwrap(),
                             backend,

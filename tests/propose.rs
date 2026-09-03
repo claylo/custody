@@ -106,10 +106,10 @@ fn proposes_candidates_for_claims_without_evidence() {
     let accepted = Locator {
         source: best.source.clone(),
         exact: best.exact.clone(),
-        markdown: best.markdown.clone(),
+        markdown: Some(best.markdown.clone()),
         pdf: best.pdf.clone(),
     };
-    assert_eq!(accepted.markdown.line, 1);
+    assert_eq!(accepted.markdown.as_ref().unwrap().line, 1);
 }
 
 #[test]
@@ -360,10 +360,10 @@ fn summary_with_evidence(markdown: &str, claim: &str) -> SummaryDocument {
         sources: BTreeMap::from([(
             DEFAULT_SOURCE.to_owned(),
             SourcePair {
-                markdown: SourceRecord {
+                markdown: Some(SourceRecord {
                     source: "md/smith-2019/smith-2019.md".to_owned(),
                     sha256: sha256_bytes(markdown.as_bytes()),
-                },
+                }),
                 pdf: SourceRecord {
                     source: "pdfs/smith-2019.pdf".to_owned(),
                     sha256: sha256_bytes(b"fixture PDF"),
@@ -376,12 +376,12 @@ fn summary_with_evidence(markdown: &str, claim: &str) -> SummaryDocument {
             locators: vec![Locator {
                 source: DEFAULT_SOURCE.to_owned(),
                 exact: "Supported once".to_owned(),
-                markdown: MarkdownLocator {
+                markdown: Some(MarkdownLocator {
                     line: Line::new(1).unwrap(),
                     column: Column::new(1).unwrap(),
                     unit: UnitKind::Paragraph,
                     section: Vec::new(),
-                },
+                }),
                 pdf: PdfLocator {
                     page: Page::new(1).unwrap(),
                     backend: PdfBackend::MutoolNative,

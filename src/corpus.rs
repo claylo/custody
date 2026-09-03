@@ -31,6 +31,7 @@ pub struct Corpus {
     coverage_config: crate::config::CoverageConfig,
     sections_config: crate::config::SectionsConfig,
     normalize_config: crate::config::NormalizeConfig,
+    corroborate_config: crate::config::CorroborateConfig,
     weak_sections: Vec<String>,
 }
 
@@ -67,6 +68,7 @@ impl Corpus {
             coverage_config: config.coverage,
             sections_config: config.sections,
             normalize_config: config.normalize,
+            corroborate_config: config.corroborate,
             weak_sections,
         })
     }
@@ -75,6 +77,30 @@ impl Corpus {
     #[must_use]
     pub const fn normalize_config(&self) -> &crate::config::NormalizeConfig {
         &self.normalize_config
+    }
+
+    /// Corroboration settings declared by this corpus.
+    #[must_use]
+    pub const fn corroborate_config(&self) -> &crate::config::CorroborateConfig {
+        &self.corroborate_config
+    }
+
+    /// Whether `name` declares any Markdown template (false for PDF-only).
+    #[must_use]
+    pub fn source_has_markdown(&self, name: &str) -> bool {
+        self.layout
+            .sources
+            .get(name)
+            .is_some_and(SourceTemplates::has_markdown)
+    }
+
+    /// Whether `name`'s Markdown counts as an independent corroborating leg.
+    #[must_use]
+    pub fn source_corroborates(&self, name: &str) -> bool {
+        self.layout
+            .sources
+            .get(name)
+            .is_some_and(|templates| templates.has_markdown() && templates.corroborates)
     }
 
     /// Vocabulary this corpus uses for a claim.

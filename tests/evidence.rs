@@ -116,7 +116,10 @@ fn desugars_bare_evidence_into_sources_default() {
 
     assert_eq!(evidence.sources.len(), 1);
     let default = &evidence.sources["default"];
-    assert_eq!(default.markdown.source, "md/smith-2019/smith-2019.md");
+    assert_eq!(
+        default.markdown.as_ref().unwrap().source,
+        "md/smith-2019/smith-2019.md"
+    );
     assert_eq!(default.pdf.source, "pdfs/smith-2019.pdf");
     assert_eq!(evidence.claims[0].locators[0].source, "default");
 }
@@ -196,10 +199,10 @@ fn reports_unknown_and_unused_sources() {
             sources: BTreeMap::from([(
                 "main".to_owned(),
                 SourcePair {
-                    markdown: SourceRecord {
+                    markdown: Some(SourceRecord {
                         source: "md/smith-2019.md".to_owned(),
                         sha256: HASH_A.to_owned(),
-                    },
+                    }),
                     pdf: SourceRecord {
                         source: "pdfs/smith-2019.pdf".to_owned(),
                         sha256: HASH_B.to_owned(),
@@ -212,12 +215,12 @@ fn reports_unknown_and_unused_sources() {
                 locators: vec![Locator {
                     source: "other".to_owned(),
                     exact: "remained laminar".to_owned(),
-                    markdown: MarkdownLocator {
+                    markdown: Some(MarkdownLocator {
                         line: Line::new(1).unwrap(),
                         column: Column::new(1).unwrap(),
                         unit: UnitKind::Paragraph,
                         section: Vec::new(),
-                    },
+                    }),
                     pdf: PdfLocator {
                         page: Page::new(1).unwrap(),
                         backend: PdfBackend::MutoolNative,

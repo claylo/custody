@@ -141,17 +141,21 @@ impl Tesseract {
     }
 
     fn rotation(&self, image: &Path) -> Result<i16> {
-        let output = run(
-            Command::new(self.executable()?)
-                .arg(image)
-                .args(["stdout", "-l", "osd", "--psm", "0"]),
-            "Tesseract orientation detection",
-        )?;
-        let combined = format!(
-            "{}\n{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
+        let output = Command::new(self.executable()?)
+            .arg(image)
+            .args(["stdout", "-l", "osd", "--psm", "0"])
+            .output()
+            .context("failed to execute Tesseract orientation detection")?;
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !output.status.success() {
+            // A page with a line or two of text cannot be oriented, but it
+            // can still be read; assume upright. Any other failure is real.
+            if stderr.contains("Too few characters") {
+                return Ok(0);
+            }
+            bail!("Tesseract orientation detection failed: {}", stderr.trim());
+        }
+        let combined = format!("{}\n{stderr}", String::from_utf8_lossy(&output.stdout));
         Ok(parse_orientation(&combined))
     }
 

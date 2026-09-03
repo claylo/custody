@@ -150,6 +150,10 @@ struct CheckReport {
     valid: usize,
     skipped: usize,
     invalid: usize,
+    /// Claims whose literals were confirmed by two or more independent texts.
+    corroborated: usize,
+    /// Claims whose literals were confirmed by one text only.
+    single_leg: usize,
     summaries: Vec<ValidationReport>,
 }
 
@@ -158,6 +162,8 @@ struct AuditReport {
     valid: usize,
     missing: usize,
     invalid: usize,
+    corroborated: usize,
+    single_leg: usize,
     summaries: Vec<AuditSummary>,
 }
 
@@ -167,6 +173,13 @@ struct AuditSummary {
     status: AuditStatus,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     issues: Vec<crate::evidence::EvidenceIssue>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    claims: Vec<crate::validate::ClaimLegs>,
+}
+
+fn count_legs(claims: &[crate::validate::ClaimLegs]) -> (usize, usize) {
+    let corroborated = claims.iter().filter(|claim| claim.corroborated).count();
+    (corroborated, claims.len() - corroborated)
 }
 
 #[derive(Debug, Serialize)]
@@ -200,7 +213,8 @@ enum ProposalSummary {
 #[derive(Debug, Serialize)]
 struct LocateResult {
     source: String,
-    markdown: SourceRecord,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    markdown: Option<SourceRecord>,
     pdf: SourceRecord,
     claim: ClaimEvidence,
     pdf_match: Option<PdfMatchDiagnostic>,
@@ -354,7 +368,12 @@ fn extract(
         .markdown_candidates_for(&args.id, &args.source)?
         .into_iter()
         .next()
-        .with_context(|| format!("source {:?} declares no Markdown template", args.source))?;
+        .with_context(|| {
+            format!(
+                "source {:?} is PDF-only and has no Markdown template to write to",
+                args.source
+            )
+        })?;
     if destination.exists() && !args.force {
         bail!(
             "{} already exists; pass --force to replace it",
@@ -548,8 +567,16 @@ fn schema_metadata() -> SchemaMetadata {
                         .description("Summaries with invalid evidence"),
                 )
                 .output_field(
+                    OutputField::new("corroborated", "integer")
+                        .description("Claims confirmed by two or more independent texts"),
+                )
+                .output_field(
+                    OutputField::new("single_leg", "integer")
+                        .description("Claims confirmed by one text only"),
+                )
+                .output_field(
                     OutputField::new("summaries", "object[]")
-                        .description("Per-summary audit status: {id, status, issues}"),
+                        .description("Per-summary audit status: {id, status, issues, claims}"),
                 )
                 .example(CommandExample::new(["--strict"])),
         )
@@ -714,34 +741,62 @@ fn locate(corpus: &Corpus, tools: &PdfTools, args: &LocateArgs, json: bool) -> R
         bail!("--exact is empty after whitespace normalization");
     }
 
-    let markdown_path = resolve_markdown_for(corpus, &args.id, &args.source)?;
-    let markdown_source = corpus.read_contained_text(&markdown_path)?;
-    let candidates: Vec<_> = parse_units(&markdown_source)
-        .into_iter()
-        .filter(|unit| args.line.is_none_or(|line| unit.line == line))
-        .filter(|unit| args.column.is_none_or(|column| unit.column == column))
-        .filter(|unit| exact_count(&unit.text, &exact) == 1)
-        .collect();
-    let [unit] = candidates.as_slice() else {
-        let details = candidates
-            .iter()
-            .map(|unit| {
-                format!(
-                    "{} at {}:{}: {:?}",
-                    unit.kind, unit.line, unit.column, unit.text
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("; ");
-        bail!(
-            "exact text resolves to {} Markdown units; choose unique text or pass coordinates{}",
-            candidates.len(),
-            if details.is_empty() {
-                String::new()
-            } else {
-                format!("; candidates: {details}")
-            }
-        );
+    // A PDF-only source has no Markdown half: the literal binds to the page
+    // alone and the locator carries no unit coordinates.
+    let markdown_half = if corpus.source_has_markdown(&args.source) {
+        let markdown_path = resolve_markdown_for(corpus, &args.id, &args.source)?;
+        let markdown_source = corpus.read_contained_text(&markdown_path)?;
+        let candidates: Vec<_> = parse_units(&markdown_source)
+            .into_iter()
+            .filter(|unit| args.line.is_none_or(|line| unit.line == line))
+            .filter(|unit| args.column.is_none_or(|column| unit.column == column))
+            .filter(|unit| exact_count(&unit.text, &exact) == 1)
+            .collect();
+        let [unit] = candidates.as_slice() else {
+            let details = candidates
+                .iter()
+                .map(|unit| {
+                    format!(
+                        "{} at {}:{}: {:?}",
+                        unit.kind, unit.line, unit.column, unit.text
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+            bail!(
+                "exact text resolves to {} Markdown units; choose unique text or pass coordinates{}",
+                candidates.len(),
+                if details.is_empty() {
+                    String::new()
+                } else {
+                    format!("; candidates: {details}")
+                }
+            );
+        };
+        Some((
+            SourceRecord {
+                source: relative(corpus, &markdown_path),
+                sha256: sha256_file(&markdown_path)?,
+            },
+            MarkdownLocator {
+                line: unit.line,
+                column: unit.column,
+                unit: unit.kind,
+                section: unit.section.clone(),
+            },
+        ))
+    } else {
+        if args.line.is_some() {
+            bail!(
+                "source {:?} is PDF-only; --line and --column do not apply",
+                args.source
+            );
+        }
+        None
+    };
+    let (markdown_record, markdown_locator) = match markdown_half {
+        Some((record, locator)) => (Some(record), Some(locator)),
+        None => (None, None),
     };
 
     let pdf_path = corpus.pdf_path_for(&args.id, &args.source)?;
@@ -759,10 +814,7 @@ fn locate(corpus: &Corpus, tools: &PdfTools, args: &LocateArgs, json: bool) -> R
     )?;
     let result = LocateResult {
         source: args.source.clone(),
-        markdown: SourceRecord {
-            source: relative(corpus, &markdown_path),
-            sha256: sha256_file(&markdown_path)?,
-        },
+        markdown: markdown_record,
         pdf: SourceRecord {
             source: relative(corpus, &pdf_path),
             sha256: pdf_sha256,
@@ -773,12 +825,7 @@ fn locate(corpus: &Corpus, tools: &PdfTools, args: &LocateArgs, json: bool) -> R
             locators: vec![Locator {
                 source: args.source.clone(),
                 exact,
-                markdown: MarkdownLocator {
-                    line: unit.line,
-                    column: unit.column,
-                    unit: unit.kind,
-                    section: unit.section.clone(),
-                },
+                markdown: markdown_locator,
                 pdf: PdfLocator { page, backend },
             }],
         },
@@ -907,6 +954,8 @@ fn check(
         valid: 0,
         skipped: 0,
         invalid: 0,
+        corroborated: 0,
+        single_leg: 0,
         summaries: Vec::new(),
     };
     for id in ids {
@@ -926,6 +975,7 @@ fn check(
                 report.summaries.push(ValidationReport {
                     id,
                     issues: vec![issue],
+                    claims: Vec::new(),
                 });
             }
             SummaryOutcome::NoEvidence => report.skipped += 1,
@@ -935,11 +985,14 @@ fn check(
                 } else {
                     report.invalid += 1;
                 }
+                let (corroborated, single_leg) = count_legs(&validation.claims);
+                report.corroborated += corroborated;
+                report.single_leg += single_leg;
                 report.summaries.push(validation);
             }
         }
     }
-    print_check_report(&report, json, quiet)?;
+    print_check_report(&report, corpus.terms(), json, quiet)?;
     if report.invalid > 0 {
         bail!(
             "{} summary or summaries have invalid evidence",
@@ -965,6 +1018,8 @@ fn audit(
         valid: 0,
         missing: 0,
         invalid: 0,
+        corroborated: 0,
+        single_leg: 0,
         summaries: Vec::new(),
     };
     let ids = if ids.is_empty() {
@@ -986,6 +1041,7 @@ fn audit(
                     id,
                     status: AuditStatus::Invalid,
                     issues: vec![issue],
+                    claims: Vec::new(),
                 });
             }
             SummaryOutcome::NoEvidence => {
@@ -994,22 +1050,28 @@ fn audit(
                     id,
                     status: AuditStatus::Missing,
                     issues: Vec::new(),
-                });
-            }
-            SummaryOutcome::Validated(validation) if validation.is_valid() => {
-                report.valid += 1;
-                report.summaries.push(AuditSummary {
-                    id,
-                    status: AuditStatus::Valid,
-                    issues: Vec::new(),
+                    claims: Vec::new(),
                 });
             }
             SummaryOutcome::Validated(validation) => {
-                report.invalid += 1;
+                let (corroborated, single_leg) = count_legs(&validation.claims);
+                report.corroborated += corroborated;
+                report.single_leg += single_leg;
+                let valid = validation.is_valid();
+                if valid {
+                    report.valid += 1;
+                } else {
+                    report.invalid += 1;
+                }
                 report.summaries.push(AuditSummary {
                     id,
-                    status: AuditStatus::Invalid,
-                    issues: validation.issues,
+                    status: if valid {
+                        AuditStatus::Valid
+                    } else {
+                        AuditStatus::Invalid
+                    },
+                    issues: if valid { Vec::new() } else { validation.issues },
+                    claims: validation.claims,
                 });
             }
         }
@@ -1018,8 +1080,14 @@ fn audit(
         print_json(&report)?;
     } else if !quiet {
         print_line(format_args!(
-            "valid: {}\nmissing: {}\ninvalid: {}",
-            report.valid, report.missing, report.invalid
+            "valid: {}\nmissing: {}\ninvalid: {}\ncorroborated {}: {}\nsingle-leg {}: {}",
+            report.valid,
+            report.missing,
+            report.invalid,
+            corpus.terms().claims,
+            report.corroborated,
+            corpus.terms().claims,
+            report.single_leg
         ))?;
     }
     if !json {
@@ -1300,14 +1368,20 @@ fn relative(corpus: &Corpus, path: &Path) -> String {
         .replace('\\', "/")
 }
 
-fn print_check_report(report: &CheckReport, json: bool, quiet: bool) -> Result<()> {
+fn print_check_report(report: &CheckReport, terms: &Terms, json: bool, quiet: bool) -> Result<()> {
     if json {
         return print_json(report);
     }
     if !quiet {
         print_line(format_args!(
-            "valid: {}\nskipped: {}\ninvalid: {}",
-            report.valid, report.skipped, report.invalid
+            "valid: {}\nskipped: {}\ninvalid: {}\ncorroborated {}: {}\nsingle-leg {}: {}",
+            report.valid,
+            report.skipped,
+            report.invalid,
+            terms.claims,
+            report.corroborated,
+            terms.claims,
+            report.single_leg
         ))?;
     }
     print_issues(
@@ -1335,6 +1409,7 @@ fn error_report(id: String, code: IssueCode, message: impl Into<String>) -> Vali
     ValidationReport {
         id,
         issues: vec![issue(code, Severity::Error, message, None, None)],
+        claims: Vec::new(),
     }
 }
 
@@ -1345,17 +1420,18 @@ fn print_locate_yaml(payload: &serde_json::Value, terms: &Terms) -> Result<()> {
             .unwrap_or(&serde_json::Value::Null)
             .clone()
     };
-    let markdown = serde_json::to_string(&field("markdown"))?;
     let pdf = serde_json::to_string(&field("pdf"))?;
     let entry = serde_json::to_string_pretty(&field(&terms.claim))?;
     if let Some(pdf_match) = payload.get("pdf_match") {
         let diagnostic = serde_json::to_string(pdf_match)?;
         print_line(format_args!("# PDF match diagnostic: {diagnostic}"))?;
     }
-    print_line(format_args!(
-        "markdown: {markdown}\npdf: {pdf}\n{}: {entry}",
-        terms.claim
-    ))
+    // A PDF-only source has no markdown record to print.
+    if let Some(markdown) = payload.get("markdown").filter(|value| !value.is_null()) {
+        let markdown = serde_json::to_string(markdown)?;
+        print_line(format_args!("markdown: {markdown}"))?;
+    }
+    print_line(format_args!("pdf: {pdf}\n{}: {entry}", terms.claim))
 }
 
 #[cfg(test)]

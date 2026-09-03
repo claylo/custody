@@ -22,6 +22,57 @@ pub struct Config {
     pub coverage: CoverageConfig,
     pub sections: SectionsConfig,
     pub normalize: NormalizeConfig,
+    pub corroborate: CorroborateConfig,
+}
+
+/// How independent confirmations of a claim's literals are gathered and
+/// reported. A claim's legs are the PDF page match (always), every declared
+/// source with `corroborates: true` whose Markdown contains all of the
+/// claim's literals, and optionally a Tesseract OCR pass over the cited
+/// pages. A claim with two or more legs is corroborated.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CorroborateConfig {
+    /// Also try OCR of each natively matched page as an independent leg.
+    /// Costs a render and a Tesseract pass per page (cached).
+    pub ocr: bool,
+    /// How a claim confirmed by only one leg is reported.
+    pub single_leg: SingleLegSeverity,
+}
+
+/// Severity for a claim whose literals were confirmed by one text only.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SingleLegSeverity {
+    #[default]
+    Off,
+    Warn,
+    Error,
+}
+
+// Hand-written for the same reason as TokenSeverity: bare `off` arrives as
+// the boolean false from the YAML layer.
+impl<'de> Deserialize<'de> for SingleLegSeverity {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        match value {
+            Value::Bool(false) => Ok(Self::Off),
+            Value::String(text) => match text.as_str() {
+                "off" => Ok(Self::Off),
+                "warn" => Ok(Self::Warn),
+                "error" => Ok(Self::Error),
+                other => Err(serde::de::Error::custom(format!(
+                    "corroborate.single_leg must be off, warn, or error, not {other:?}"
+                ))),
+            },
+            other => Err(serde::de::Error::custom(format!(
+                "corroborate.single_leg must be off, warn, or error, not {other}"
+            ))),
+        }
+    }
 }
 
 /// Optional text normalization rules, applied identically to every side of a
@@ -80,15 +131,37 @@ impl Default for CorpusLayout {
 
 /// Markdown and PDF templates for one named source.
 ///
-/// Both fields are required: a source that silently inherited the default
-/// PDF template would resolve two named sources to the same file.
+/// The PDF template is required: a source that silently inherited the
+/// default PDF template would resolve two named sources to the same file.
+/// The Markdown list may be empty or omitted, which declares a PDF-only
+/// source: locators bind to the PDF page alone and carry no Markdown half.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SourceTemplates {
-    /// Candidate templates for converted Markdown, tried in order.
+    /// Candidate templates for converted Markdown, tried in order. Empty
+    /// means PDF-only.
+    #[serde(default)]
     pub markdown: Vec<String>,
     /// Template for the canonical PDF.
     pub pdf: String,
+    /// Whether this source's Markdown is an independent rendering of the
+    /// text and therefore counts as a corroborating leg. Set false for
+    /// Markdown derived from the PDF's own text layer (`receipts extract`),
+    /// which can only ever agree with the PDF.
+    #[serde(default = "default_true")]
+    pub corroborates: bool,
+}
+
+const fn default_true() -> bool {
+    true
+}
+
+impl SourceTemplates {
+    /// Whether the source declares any Markdown template.
+    #[must_use]
+    pub fn has_markdown(&self) -> bool {
+        !self.markdown.is_empty()
+    }
 }
 
 impl Default for SourceTemplates {
@@ -96,6 +169,7 @@ impl Default for SourceTemplates {
         Self {
             markdown: vec!["md/{id}.md".to_owned(), "md/{id}/{id}.md".to_owned()],
             pdf: "pdfs/{id}.pdf".to_owned(),
+            corroborates: true,
         }
     }
 }
@@ -311,9 +385,6 @@ fn validate(config: &Config) -> Result<()> {
     for (name, templates) in &config.corpus.sources {
         if !crate::evidence::validate_source_name(name) {
             bail!("corpus source name {name:?} is not a valid path component");
-        }
-        if templates.markdown.is_empty() {
-            bail!("corpus source {name:?} must list at least one markdown template");
         }
         validate_template(&templates.pdf)?;
         for template in &templates.markdown {

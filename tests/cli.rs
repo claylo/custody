@@ -190,7 +190,10 @@ fn audit_discovers_summaries_at_the_configured_template_depth() {
     let output = receipts(corpus.path(), &["audit"]);
 
     assert!(output.status.success(), "{}", stderr(&output));
-    assert_eq!(stdout(&output), "valid: 0\nmissing: 1\ninvalid: 0\n");
+    assert_eq!(
+        stdout(&output),
+        "valid: 0\nmissing: 1\ninvalid: 0\ncorroborated claims: 0\nsingle-leg claims: 0\n"
+    );
 }
 
 #[test]
@@ -620,8 +623,10 @@ fn locate_source_flag_selects_named_source_templates() {
         !supplement_stderr.contains("no canonical Markdown source found"),
         "--source supplement should resolve its own Markdown template: {supplement_stderr}"
     );
+    // The empty page cannot be oriented, so OSD is skipped and recognition
+    // runs and finds nothing; either way the error comes from the OCR stage.
     assert!(
-        supplement_stderr.contains("Tesseract"),
+        supplement_stderr.contains("Tesseract") || supplement_stderr.contains("through OCR"),
         "should reach PDF/OCR resolution once Markdown resolves via the named source: {supplement_stderr}"
     );
 }
@@ -958,12 +963,12 @@ fn fixture_evidence_sha256(exact: &str) -> String {
         locators: vec![Locator {
             source: "default".to_owned(),
             exact: exact.to_owned(),
-            markdown: MarkdownLocator {
+            markdown: Some(MarkdownLocator {
                 line: Line::new(1).unwrap(),
                 column: Column::new(1).unwrap(),
                 unit: UnitKind::Paragraph,
                 section: vec![],
-            },
+            }),
             pdf: PdfLocator {
                 page: Page::new(1).unwrap(),
                 backend: PdfBackend::MutoolNative,

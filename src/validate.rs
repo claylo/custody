@@ -6,7 +6,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    config::TokenSeverity,
+    config::{SingleLegSeverity, TokenSeverity},
     coordinate::{ClaimIndex, LocatorIndex, Page},
     corpus::Corpus,
     evidence::{
@@ -25,6 +25,19 @@ use crate::{
 pub struct ValidationReport {
     pub id: String,
     pub issues: Vec<EvidenceIssue>,
+    /// Which independent texts confirmed each claim's literals.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub claims: Vec<ClaimLegs>,
+}
+
+/// The independent texts ("legs") in which every literal of one claim was
+/// found exactly once. `pdf` is the recorded page match; a source name is a
+/// corroborating Markdown; `ocr` is a Tesseract pass over the cited pages.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClaimLegs {
+    pub claim: ClaimIndex,
+    pub legs: Vec<String>,
+    pub corroborated: bool,
 }
 
 struct IndexedMarkdown {
@@ -36,6 +49,96 @@ struct ResolvedSource {
     markdown: Option<IndexedMarkdown>,
     pdf_path: PathBuf,
     pdf_sha256: Option<String>,
+}
+
+/// Every corroborating Markdown the corpus declares for this summary,
+/// whether or not the evidence cites it. Missing files are simply absent.
+fn corroborating_markdown(
+    corpus: &Corpus,
+    summary: &SummaryDocument,
+) -> BTreeMap<String, IndexedMarkdown> {
+    let mut texts = BTreeMap::new();
+    for name in corpus.source_names() {
+        if !corpus.source_corroborates(name) {
+            continue;
+        }
+        let Ok(candidates) = corpus.markdown_candidates_for(&summary.id, name) else {
+            continue;
+        };
+        let Some(path) = candidates.iter().find(|path| path.is_file()) else {
+            continue;
+        };
+        if let Ok(crate::corpus::ResolvedCorpusFile::Contained(_)) =
+            corpus.resolve_contained_file(path)
+            && let Ok(source) = corpus.read_contained_text(path)
+        {
+            texts.insert(name.to_owned(), IndexedMarkdown::parse(&source));
+        }
+    }
+    texts
+}
+
+/// A literal is confirmed by a Markdown when some unit contains it exactly once.
+fn markdown_confirms(markdown: &IndexedMarkdown, exact: &str) -> bool {
+    markdown
+        .units
+        .iter()
+        .any(|unit| exact_count(&unit.text, exact) == 1)
+}
+
+fn claim_legs(
+    corpus: &Corpus,
+    provider: &impl PdfTextProvider,
+    entry: &ClaimEvidence,
+    pdf_confirmed: bool,
+    corroborating: &BTreeMap<String, IndexedMarkdown>,
+    sources: &BTreeMap<&str, ResolvedSource>,
+) -> ClaimLegs {
+    let mut legs = Vec::new();
+    if pdf_confirmed {
+        legs.push("pdf".to_owned());
+    }
+    for (name, markdown) in corroborating {
+        if entry
+            .locators
+            .iter()
+            .all(|locator| markdown_confirms(markdown, &locator.exact))
+        {
+            legs.push(name.clone());
+        }
+    }
+    if corpus.corroborate_config().ocr
+        && corpus.ocr_config().enabled
+        && pdf_confirmed
+        && !entry.locators.is_empty()
+    {
+        let ocr_confirms = entry.locators.iter().all(|locator| {
+            if locator.pdf.backend == PdfBackend::TesseractOcr {
+                // The recorded match already came from OCR; it cannot be its
+                // own second opinion.
+                return false;
+            }
+            let Some(source) = sources.get(locator.source.as_str()) else {
+                return false;
+            };
+            extract_pdf_page(
+                provider,
+                &source.pdf_path,
+                source.pdf_sha256.as_deref().unwrap_or_default(),
+                PdfBackend::TesseractOcr,
+                locator.pdf.page,
+            )
+            .is_ok_and(|text| exact_count(&text, &locator.exact) == 1)
+        });
+        if ocr_confirms {
+            legs.push("ocr".to_owned());
+        }
+    }
+    ClaimLegs {
+        claim: entry.claim,
+        corroborated: legs.len() >= 2,
+        legs,
+    }
 }
 
 type PdfPageCache<'a> = HashMap<(&'a str, PdfBackend, Page), Result<String, String>>;
@@ -68,10 +171,12 @@ pub fn validate_document(
         return ValidationReport {
             id: summary.id.clone(),
             issues,
+            claims: Vec::new(),
         };
     };
 
     let sources = resolve_sources(corpus, evidence, summary, &mut issues);
+    let corroborating = corroborating_markdown(corpus, summary);
 
     let mut pdf_pages = preload_native_pages(evidence, &sources, provider);
     let token_severity = match corpus.coverage_config().tokens {
@@ -79,10 +184,17 @@ pub fn validate_document(
         TokenSeverity::Warn => Some(Severity::Warning),
         TokenSeverity::Off => None,
     };
+    let single_leg_severity = match corpus.corroborate_config().single_leg {
+        SingleLegSeverity::Error => Some(Severity::Error),
+        SingleLegSeverity::Warn => Some(Severity::Warning),
+        SingleLegSeverity::Off => None,
+    };
     let weak_sections = corpus.weak_sections();
+    let mut claims = Vec::with_capacity(evidence.claims.len());
 
     for entry in &evidence.claims {
         let mut resolved_units = Vec::with_capacity(entry.locators.len());
+        let mut pdf_confirmed = !entry.locators.is_empty();
         for (locator_index, locator) in entry.locators.iter().enumerate() {
             let locator_index = LocatorIndex::new(locator_index);
             let (resolved_unit, locator_issues) = validate_locator_against_sources(
@@ -95,10 +207,48 @@ pub fn validate_document(
                 &mut pdf_pages,
             );
             resolved_units.push(resolved_unit);
+            if locator_issues.iter().any(|issue| {
+                issue.severity == Severity::Error
+                    && (issue.code == issue_code::PDF_MISSING.as_str()
+                        || issue.code == issue_code::PDF_AMBIGUOUS.as_str()
+                        || issue.code == issue_code::PDF_EXTRACTION_FAILED.as_str()
+                        || issue.code == issue_code::OCR_DISABLED.as_str())
+            }) {
+                pdf_confirmed = false;
+            }
             issues.extend(locator_issues);
         }
         issues.extend(check_token_coverage(entry, &summary.claims, token_severity));
         issues.extend(check_weak_sections(entry, &resolved_units, weak_sections));
+        let legs = claim_legs(
+            corpus,
+            provider,
+            entry,
+            pdf_confirmed,
+            &corroborating,
+            &sources,
+        );
+        if let Some(severity) = single_leg_severity
+            && !legs.corroborated
+        {
+            issues.push(issue(
+                issue_code::SINGLE_LEG,
+                severity,
+                format!(
+                    "{} {} is confirmed by {} only",
+                    corpus.terms().claim,
+                    entry.claim,
+                    if legs.legs.is_empty() {
+                        "no text".to_owned()
+                    } else {
+                        legs.legs.join(", ")
+                    }
+                ),
+                Some(entry.claim),
+                None,
+            ));
+        }
+        claims.push(legs);
     }
 
     if let Some(rev) = summary.review.as_ref() {
@@ -126,6 +276,7 @@ pub fn validate_document(
     ValidationReport {
         id: summary.id.clone(),
         issues,
+        claims,
     }
 }
 
@@ -161,20 +312,6 @@ fn resolve_sources<'a>(
                 continue;
             }
         };
-        let Some(markdown_path) = markdown_candidates
-            .iter()
-            .find(|path| path.is_file())
-            .or_else(|| markdown_candidates.first())
-        else {
-            issues.push(issue(
-                issue_code::EMPTY_MARKDOWN_CANDIDATES,
-                Severity::Error,
-                format!("no markdown template candidates for source {source_name:?}"),
-                None,
-                None,
-            ));
-            continue;
-        };
         let pdf_path = match corpus.pdf_path_for(&summary.id, source_name) {
             Ok(path) => path,
             Err(error) => {
@@ -189,16 +326,70 @@ fn resolve_sources<'a>(
             }
         };
 
+        // The record and the configuration must agree on whether this
+        // source has a Markdown half.
         let markdown_label = format!("{source_name}/markdown");
         let pdf_label = format!("{source_name}/pdf");
-        validate_source_path(
-            corpus,
-            source_name,
-            &markdown_label,
-            &pair.markdown.source,
-            markdown_path,
-            issues,
-        );
+        let markdown_path = match (
+            pair.markdown.as_ref(),
+            corpus.source_has_markdown(source_name),
+        ) {
+            (Some(_), true) => {
+                let Some(path) = markdown_candidates
+                    .iter()
+                    .find(|path| path.is_file())
+                    .or_else(|| markdown_candidates.first())
+                else {
+                    issues.push(issue(
+                        issue_code::EMPTY_MARKDOWN_CANDIDATES,
+                        Severity::Error,
+                        format!("no markdown template candidates for source {source_name:?}"),
+                        None,
+                        None,
+                    ));
+                    continue;
+                };
+                Some(path)
+            }
+            (None, false) => None,
+            (Some(record), false) => {
+                issues.push(source_issue(
+                    issue_code::SOURCE_MISMATCH,
+                    Severity::Error,
+                    format!(
+                        "recorded {markdown_label} source is {:?}; source {source_name:?} is PDF-only",
+                        record.source
+                    ),
+                    source_name,
+                    None,
+                    None,
+                ));
+                continue;
+            }
+            (None, true) => {
+                issues.push(source_issue(
+                    issue_code::SOURCE_MISMATCH,
+                    Severity::Error,
+                    format!(
+                        "no {markdown_label} source recorded, but source {source_name:?} declares Markdown templates"
+                    ),
+                    source_name,
+                    None,
+                    None,
+                ));
+                continue;
+            }
+        };
+        if let (Some(record), Some(path)) = (pair.markdown.as_ref(), markdown_path) {
+            validate_source_path(
+                corpus,
+                source_name,
+                &markdown_label,
+                &record.source,
+                path,
+                issues,
+            );
+        }
         validate_source_path(
             corpus,
             source_name,
@@ -207,8 +398,9 @@ fn resolve_sources<'a>(
             &pdf_path,
             issues,
         );
-        let markdown_is_safe =
-            validate_resolved_source(corpus, source_name, &markdown_label, markdown_path, issues);
+        let markdown_is_safe = markdown_path.is_none_or(|path| {
+            validate_resolved_source(corpus, source_name, &markdown_label, path, issues)
+        });
         let pdf_is_safe =
             validate_resolved_source(corpus, source_name, &pdf_label, &pdf_path, issues);
         // Never read a source that resolves outside the corpus.
@@ -216,28 +408,28 @@ fn resolve_sources<'a>(
             continue;
         }
 
-        let _markdown_sha256 = validate_file_hash(
-            source_name,
-            &markdown_label,
-            markdown_path,
-            &pair.markdown.sha256,
-            issues,
-        );
         let pdf_sha256 =
             validate_file_hash(source_name, &pdf_label, &pdf_path, &pair.pdf.sha256, issues);
-        let markdown = match corpus.read_contained_text(markdown_path) {
-            Ok(markdown_source) => Some(IndexedMarkdown::parse(&markdown_source)),
-            Err(error) => {
-                issues.push(source_issue(
-                    issue_code::MARKDOWN_READ_FAILED,
-                    Severity::Error,
-                    format!("failed to read {}: {error}", markdown_path.display()),
-                    source_name,
-                    None,
-                    None,
-                ));
-                None
+        let markdown = match (pair.markdown.as_ref(), markdown_path) {
+            (Some(record), Some(path)) => {
+                let _markdown_sha256 =
+                    validate_file_hash(source_name, &markdown_label, path, &record.sha256, issues);
+                match corpus.read_contained_text(path) {
+                    Ok(markdown_source) => Some(IndexedMarkdown::parse(&markdown_source)),
+                    Err(error) => {
+                        issues.push(source_issue(
+                            issue_code::MARKDOWN_READ_FAILED,
+                            Severity::Error,
+                            format!("failed to read {}: {error}", path.display()),
+                            source_name,
+                            None,
+                            None,
+                        ));
+                        None
+                    }
+                }
             }
+            _ => None,
         };
         sources.insert(
             source_name.as_str(),
@@ -315,29 +507,30 @@ fn validate_locator_against_sources<'sources, 'evidence>(
 ) -> (Option<&'sources MarkdownUnit>, Vec<EvidenceIssue>) {
     let mut issues = Vec::new();
     let source_name = locator.source.as_str();
-    let resolved_unit = if let Some(markdown) = sources
+    let markdown_half = sources
         .get(source_name)
         .and_then(|source| source.markdown.as_ref())
-    {
+        .zip(locator.markdown.as_ref());
+    let resolved_unit = if let Some((markdown, recorded)) = markdown_half {
         match resolve_unit(
             &markdown.units,
             &markdown.index,
-            locator.markdown.unit,
-            locator.markdown.line,
-            locator.markdown.column,
+            recorded.unit,
+            recorded.line,
+            recorded.column,
         ) {
             Ok(unit) => {
                 match exact_count(&unit.text, &locator.exact) {
                     1 => {
-                        if !locator.markdown.section.is_empty()
-                            && !sections::paths_match(&locator.markdown.section, &unit.section)
+                        if !recorded.section.is_empty()
+                            && !sections::paths_match(&recorded.section, &unit.section)
                         {
                             issues.push(issue(
                                 issue_code::STALE_SECTION,
                                 Severity::Error,
                                 format!(
                                     "recorded section {:?} but unit is under {:?}",
-                                    locator.markdown.section, unit.section
+                                    recorded.section, unit.section
                                 ),
                                 Some(claim),
                                 Some(locator_index),
@@ -349,7 +542,7 @@ fn validate_locator_against_sources<'sources, 'evidence>(
                         Severity::Error,
                         format!(
                             "exact text does not occur in the recorded {} unit",
-                            locator.markdown.unit
+                            recorded.unit
                         ),
                         Some(claim),
                         Some(locator_index),

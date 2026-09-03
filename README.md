@@ -93,6 +93,18 @@ to pin a tool explicitly. A null path is resolved from `PATH` once at startup;
 The bare `corpus.markdown` / `corpus.pdf` shorthand is still accepted and
 desugars into a single source named `default`.
 
+A source may omit `markdown` (or list none) to be **PDF-only**: `locate`
+binds the literal to the PDF page alone and the locator carries no Markdown
+half, `check` skips every Markdown test for it, and `extract --write` refuses
+it as a destination. Use this when the PDF's own text layer is the reading
+copy and there is no converter output worth pinning.
+
+Each source also takes `corroborates` (default `true`): whether its Markdown
+is an independent rendering of the text. Set it `false` for Markdown derived
+from the PDF's own text layer (`receipts extract` output), which can only
+ever agree with the PDF and so must not count as a second opinion. See
+[Corroboration](#corroboration).
+
 Every template is relative to the corpus root and must contain `{id}`. Absolute
 paths and `..` segments are rejected, so a config file cannot direct reads
 outside the corpus.
@@ -162,6 +174,38 @@ Nothing else changes: ligatures, dashes, minus signs, superscripts, and OCR
 errors are compared as they are. Normalization rules are a property of the
 corpus and are read once at startup; `doctor` reports the active set.
 
+### Corroboration
+
+A locator proves a literal sits on a PDF page. Whether anything *independent*
+also contains it is a separate question, and `check` and `audit` answer it
+per claim without the evidence having to cite the extra sources. A claim's
+**legs** are the texts in which every one of its literals occurs exactly
+once:
+
+- `pdf` — the recorded page matches (always, when they pass).
+- each declared source with `corroborates: true` whose Markdown exists for
+  the summary and contains every literal inside one unit. Publisher HTML
+  or XML converted to Markdown is the typical second leg for a born-digital
+  PDF; a converter's OCR is the typical second leg for a scan.
+- `ocr` — with `corroborate.ocr: true`, a Tesseract pass over each natively
+  matched page. Independent of the text layer, so it catches broken font
+  encodings and, for a scan, disagrees with whatever engine wrote the
+  existing layer. Costs a render and a recognition per page, cached.
+
+A claim with two or more legs is **corroborated**. Reports carry the legs
+per claim and totals (`corroborated`, `single_leg`); `audit` prints both
+counts. `corroborate.single_leg` (`off` by default, or `warn` / `error`)
+reports a `single_leg` issue for any claim with one leg.
+
+```yaml
+corroborate:
+  ocr: false
+  single_leg: off
+```
+
+Corroboration never changes whether a record is valid unless `single_leg`
+is `error`. It is a map of where the evidence stands on one leg.
+
 ## Run
 
 ```bash
@@ -215,7 +259,8 @@ remain valid so native misses can proceed to OCR fallback.
 
 Validates evidence structure, source hashes, Markdown unit resolution, PDF page
 matching, token coverage, section paths, and review staleness. Non-zero exit on
-any error.
+any error. Every report also lists each claim's corroborating legs; see
+[Corroboration](#corroboration).
 
 `--require-review` gates on missing review entries and non-`supported` verdicts.
 Without the flag, reviews are checked for staleness but verdicts are not

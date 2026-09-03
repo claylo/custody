@@ -37,10 +37,13 @@ pub struct Evidence {
     pub claims: Vec<ClaimEvidence>,
 }
 
+/// The recorded files for one named source. `markdown` is absent for a
+/// PDF-only source.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SourcePair {
-    pub markdown: SourceRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub markdown: Option<SourceRecord>,
     pub pdf: SourceRecord,
 }
 
@@ -65,7 +68,9 @@ pub struct Locator {
     #[serde(default = "default_source_name")]
     pub source: String,
     pub exact: String,
-    pub markdown: MarkdownLocator,
+    /// Absent when the locator's source is PDF-only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub markdown: Option<MarkdownLocator>,
     pub pdf: PdfLocator,
 }
 
@@ -215,6 +220,8 @@ define_issue_codes! {
     PDF_EXTRACTION_FAILED => ("pdf_extraction_failed", Some(1), "PDF text extraction failed"),
     EMPTY_MARKDOWN_CANDIDATES => ("empty_markdown_candidates", Some(1), "No markdown template candidates for a source"),
     WEAK_SECTION_ONLY => ("weak_section_only", None, "Every locator sits under a weak section heading (warning)"),
+    MARKDOWN_LOCATOR_MISMATCH => ("markdown_locator_mismatch", Some(1), "Locator has a Markdown half but its source is PDF-only, or vice versa"),
+    SINGLE_LEG => ("single_leg", None, "Claim literals were confirmed by one text only (severity from corroborate.single_leg)"),
     SOURCE_HASH_MISMATCH => ("source_hash_mismatch", Some(1), "Source file SHA-256 disagrees with recorded hash"),
     SOURCE_MISMATCH => ("source_mismatch", Some(1), "Recorded source path does not match expected path"),
     SOURCE_READ_FAILED => ("source_read_failed", Some(1), "Source file could not be read for hashing"),
@@ -327,7 +334,9 @@ impl SummaryDocument {
                     None,
                 ));
             }
-            validate_source(&format!("{name}/markdown"), &pair.markdown, &mut issues);
+            if let Some(markdown) = pair.markdown.as_ref() {
+                validate_source(&format!("{name}/markdown"), markdown, &mut issues);
+            }
             validate_source(&format!("{name}/pdf"), &pair.pdf, &mut issues);
         }
 
@@ -381,8 +390,27 @@ impl SummaryDocument {
             );
 
             for (locator_index, locator) in entry.locators.iter().enumerate() {
-                if evidence.sources.contains_key(&locator.source) {
+                if let Some(pair) = evidence.sources.get(&locator.source) {
                     referenced.insert(locator.source.as_str());
+                    if pair.markdown.is_some() != locator.markdown.is_some() {
+                        issues.push(issue(
+                            issue_code::MARKDOWN_LOCATOR_MISMATCH,
+                            Severity::Error,
+                            if pair.markdown.is_some() {
+                                format!(
+                                    "source {:?} records Markdown but the locator has no markdown half",
+                                    locator.source
+                                )
+                            } else {
+                                format!(
+                                    "source {:?} is PDF-only but the locator has a markdown half",
+                                    locator.source
+                                )
+                            },
+                            Some(entry.claim),
+                            Some(LocatorIndex::new(locator_index)),
+                        ));
+                    }
                 } else {
                     issues.push(issue(
                         issue_code::UNKNOWN_SOURCE,
