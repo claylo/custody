@@ -1,7 +1,10 @@
 use std::{path::Path, process::Command};
 
 use anyhow::{Context, Result, anyhow, bail};
-use serde::Deserialize;
+use quick_xml::{
+    Reader, XmlVersion,
+    events::{BytesStart, Event},
+};
 
 use super::{Executable, NumericVersion, parse_numeric_version, run};
 use super::{ExtractedPage, PdfBbox, TextSpan};
@@ -48,16 +51,8 @@ impl Mutool {
 
     /// Extract native structured text, optionally from a single physical page.
     pub fn native_pages(&self, pdf: &Path, page: Option<Page>) -> Result<Vec<ExtractedPage>> {
-        let mut command = Command::new(self.executable()?);
-        command.args(["draw", "-q", "-F", "stext.json", "-o", "-"]);
-        command.arg(pdf);
-        if let Some(page) = page {
-            command.arg(page.to_string());
-        }
-        let output = run(&mut command, "MuPDF structured-text extraction")?;
-        let mut pages = parse_stext_json(
-            std::str::from_utf8(&output.stdout).context("MuPDF output was not UTF-8")?,
-        )?;
+        let source = self.stext(pdf, page)?;
+        let mut pages = parse_stext(&source)?;
         if let Some(page) = page {
             if pages.len() != 1 {
                 bail!(
@@ -72,13 +67,26 @@ impl Mutool {
 
     /// Extract native text as per-page paragraphs, for `receipts extract`.
     pub fn native_blocks(&self, pdf: &Path) -> Result<Vec<PageBlocks>> {
+        let source = self.stext(pdf, None)?;
+        parse_stext_blocks(&source)
+    }
+
+    /// Run `mutool draw -F stext`, the XML structured-text writer.
+    ///
+    /// The XML writer is used rather than `stext.json` because the JSON writer
+    /// emits one "line" object per font run, so a typeset line whose glyphs
+    /// come from two publisher font subsets (`attachme` + `nt`, `Bowlby` +
+    /// `’` + `s`) arrives as several objects and any join re-creates the seam
+    /// as whitespace. The XML `<line text="…">` attribute is the whole line.
+    fn stext(&self, pdf: &Path, page: Option<Page>) -> Result<String> {
         let mut command = Command::new(self.executable()?);
-        command.args(["draw", "-q", "-F", "stext.json", "-o", "-"]);
+        command.args(["draw", "-q", "-F", "stext", "-o", "-"]);
         command.arg(pdf);
+        if let Some(page) = page {
+            command.arg(page.to_string());
+        }
         let output = run(&mut command, "MuPDF structured-text extraction")?;
-        parse_stext_blocks(
-            std::str::from_utf8(&output.stdout).context("MuPDF output was not UTF-8")?,
-        )
+        String::from_utf8(output.stdout).context("MuPDF output was not UTF-8")
     }
 
     /// Render one page to a PNG suitable for deterministic OCR.
@@ -113,24 +121,16 @@ impl Mutool {
     }
 }
 
-/// Parse `MuPDF`'s `stext.json` output without repairing token fragmentation.
+/// Parse `MuPDF`'s `stext` XML output without repairing token fragmentation.
 ///
 /// Lines are joined with `\n` before normalization so that a word hyphenated
 /// across a line break can be rejoined by the dehyphenation rule.
-pub fn parse_stext_json(source: &str) -> Result<Vec<ExtractedPage>> {
-    let document = parse_document(source)?;
-
-    document
-        .pages
+pub fn parse_stext(source: &str) -> Result<Vec<ExtractedPage>> {
+    parse_document(source)?
         .into_iter()
         .enumerate()
         .map(|(index, page)| -> Result<ExtractedPage> {
-            let mut lines = Vec::new();
-            for block in page.blocks {
-                if block.kind == "text" {
-                    lines.extend(block.lines.context("MuPDF text block is missing lines")?);
-                }
-            }
+            let lines: Vec<StextLine> = page.into_iter().flatten().collect();
             let text = lines
                 .iter()
                 .map(|line| line.text.as_str())
@@ -143,7 +143,7 @@ pub fn parse_stext_json(source: &str) -> Result<Vec<ExtractedPage>> {
                     .into_iter()
                     .map(|line| TextSpan {
                         text: line.text,
-                        bbox: line.bbox.map(Into::into),
+                        bbox: line.bbox,
                     })
                     .collect(),
                 mean_confidence: None,
@@ -159,82 +159,129 @@ pub fn parse_stext_json(source: &str) -> Result<Vec<ExtractedPage>> {
 /// blocks are dropped; a page with no text yields an empty list.
 pub type PageBlocks = Vec<String>;
 
-/// Parse `MuPDF`'s `stext.json` output into per-page, per-block text.
+/// Parse `MuPDF`'s `stext` XML output into per-page, per-block text.
 pub fn parse_stext_blocks(source: &str) -> Result<Vec<PageBlocks>> {
-    let document = parse_document(source)?;
-    document
-        .pages
+    Ok(parse_document(source)?
         .into_iter()
-        .map(|page| -> Result<PageBlocks> {
-            let mut blocks = Vec::new();
-            for block in page.blocks {
-                if block.kind != "text" {
-                    continue;
-                }
-                let lines = block.lines.context("MuPDF text block is missing lines")?;
-                let joined = lines
-                    .iter()
-                    .map(|line| line.text.as_str())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                let text = normalize(&joined);
-                if !text.is_empty() {
-                    blocks.push(text);
-                }
-            }
-            Ok(blocks)
+        .map(|page| {
+            page.into_iter()
+                .map(|block| {
+                    let joined = block
+                        .iter()
+                        .map(|line| line.text.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    normalize(&joined)
+                })
+                .filter(|text| !text.is_empty())
+                .collect()
         })
-        .collect()
+        .collect())
 }
 
-fn parse_document(source: &str) -> Result<StextDocument> {
-    let document: StextDocument = serde_json::from_str(source)
-        .map_err(|error| anyhow!("failed to parse MuPDF structured-text JSON: {error}"))?;
-    if document.pages.is_empty() {
-        bail!("MuPDF structured-text JSON contains no pages");
-    }
-    Ok(document)
-}
-
-#[derive(Debug, Deserialize)]
-struct StextDocument {
-    pages: Vec<StextPage>,
-}
-
-#[derive(Debug, Deserialize)]
-struct StextPage {
-    blocks: Vec<StextBlock>,
-}
-
-#[derive(Debug, Deserialize)]
-struct StextBlock {
-    #[serde(rename = "type")]
-    kind: String,
-    lines: Option<Vec<StextLine>>,
-}
-
-#[derive(Debug, Deserialize)]
+/// One `<line>` element: its decoded `text` attribute and optional geometry.
 struct StextLine {
-    #[serde(default)]
-    bbox: Option<StextBbox>,
     text: String,
+    bbox: Option<PdfBbox>,
 }
 
-#[derive(Debug, Deserialize)]
-struct StextBbox {
-    x: f64,
-    y: f64,
-    w: f64,
-    h: f64,
-}
+type StextBlock = Vec<StextLine>;
+type StextPage = Vec<StextBlock>;
 
-impl From<StextBbox> for PdfBbox {
-    fn from(value: StextBbox) -> Self {
-        Self {
-            x: value.x,
-            y: value.y,
-            width: value.w,
-            height: value.h,
+/// Stream the XML and keep only `<page>`, `<block>`, and `<line>` structure.
+///
+/// The XML carries a `<char>` element for every glyph, so a long book is
+/// hundreds of megabytes of markup; the reader never materializes a tree.
+/// Elements other than those three (`<font>`, `<char>`, `<image>`) are
+/// skipped, and a `<line>` outside a `<block>` is a `MuPDF` format error.
+fn parse_document(source: &str) -> Result<Vec<StextPage>> {
+    let mut reader = Reader::from_str(source);
+    let mut pages: Vec<StextPage> = Vec::new();
+    let mut in_document = false;
+    loop {
+        let event = reader
+            .read_event()
+            .map_err(|error| anyhow!("failed to parse MuPDF structured-text XML: {error}"))?;
+        match event {
+            Event::Start(element) | Event::Empty(element) => match element.name().as_ref() {
+                "document" => in_document = true,
+                "page" => {
+                    if !in_document {
+                        bail!("MuPDF structured-text XML has a page outside <document>");
+                    }
+                    pages.push(Vec::new());
+                }
+                "block" => pages
+                    .last_mut()
+                    .context("MuPDF structured-text XML has a block outside <page>")?
+                    .push(Vec::new()),
+                "line" => pages
+                    .last_mut()
+                    .and_then(|page| page.last_mut())
+                    .context("MuPDF structured-text XML has a line outside <block>")?
+                    .push(parse_line(&element)?),
+                _ => {}
+            },
+            Event::Eof => break,
+            _ => {}
         }
     }
+    if !in_document {
+        bail!("MuPDF structured-text XML has no <document> root");
+    }
+    if pages.is_empty() {
+        bail!("MuPDF structured-text XML contains no pages");
+    }
+    Ok(pages)
+}
+
+fn parse_line(element: &BytesStart<'_>) -> Result<StextLine> {
+    let mut text = None;
+    let mut bbox = None;
+    for attribute in element.attributes() {
+        let attribute = attribute
+            .map_err(|error| anyhow!("malformed MuPDF structured-text attribute: {error}"))?;
+        match attribute.key.as_ref() {
+            "text" => {
+                text = Some(
+                    attribute
+                        .normalized_value(XmlVersion::Explicit1_0)
+                        .context("MuPDF line text is not valid XML")?
+                        .into_owned(),
+                );
+            }
+            "bbox" => {
+                let value = attribute
+                    .normalized_value(XmlVersion::Explicit1_0)
+                    .context("MuPDF line bbox is not valid XML")?;
+                bbox = Some(parse_bbox(&value)?);
+            }
+            _ => {}
+        }
+    }
+    Ok(StextLine {
+        text: text.context("MuPDF text line is missing its text attribute")?,
+        bbox,
+    })
+}
+
+/// Parse the `x0 y0 x1 y1` attribute form into an origin-plus-size box.
+fn parse_bbox(value: &str) -> Result<PdfBbox> {
+    let corners: Vec<f64> = value
+        .split_ascii_whitespace()
+        .map(|number| {
+            number
+                .parse::<f64>()
+                .with_context(|| format!("MuPDF bbox coordinate {number:?} is not a number"))
+        })
+        .collect::<Result<_>>()?;
+    let [x0, y0, x1, y1] = corners[..] else {
+        bail!("MuPDF bbox {value:?} does not have four coordinates");
+    };
+    Ok(PdfBbox {
+        x: x0,
+        y: y0,
+        width: x1 - x0,
+        height: y1 - y0,
+    })
 }

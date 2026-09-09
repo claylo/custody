@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<document filename="rotated.pdf">
+<page id="page1" width="720" height="504">
+<block bbox="100 100 120 300" justify="unknown">
+<line bbox="100 100 110 112" wmode="1" dir="0 1" flags="0" text="42">
+</line>
+<line bbox="100 112 110 116" wmode="1" dir="0 1" flags="0" text=".">
+</line>
+<line bbox="100 116 110 128" wmode="1" dir="0 1" flags="0" text="8">
+</line>
+<line bbox="100 128 110 240" wmode="1" dir="0 1" flags="0" text="% within tolera">
+</line>
+<line bbox="100 240 110 300" wmode="1" dir="0 1" flags="0" text="nce">
+</line>
+</block>
+</page>
+</document>
