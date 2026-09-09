@@ -219,6 +219,12 @@ pub fn validate_document(
             issues.extend(locator_issues);
         }
         issues.extend(check_token_coverage(entry, &summary.claims, token_severity));
+        issues.extend(check_word_coverage(
+            entry,
+            &summary.claims,
+            &summary.exempt_words,
+            corpus.coverage_config(),
+        ));
         issues.extend(check_weak_sections(entry, &resolved_units, weak_sections));
         let legs = claim_legs(
             corpus,
@@ -668,6 +674,55 @@ fn check_token_coverage(
         }
     }
     issues
+}
+
+/// Under `coverage.words`, every content word of the claim must sit in some
+/// locator's exact text. This is what catches a qualifier the summary added
+/// to an otherwise verbatim sentence; the material-token rule cannot.
+fn check_word_coverage(
+    entry: &ClaimEvidence,
+    claims: &[String],
+    exempt_words: &[String],
+    coverage: &crate::config::CoverageConfig,
+) -> Vec<EvidenceIssue> {
+    let severity = match coverage.words {
+        TokenSeverity::Error => Severity::Error,
+        TokenSeverity::Warn => Severity::Warning,
+        TokenSeverity::Off => return Vec::new(),
+    };
+    let Some(claim_text) = claims.get(entry.claim.get()) else {
+        return Vec::new();
+    };
+    let mut allowed = coverage.allowed_words.clone();
+    allowed.extend(exempt_words.iter().cloned());
+    let uncovered: Vec<String> = tokens::content_words(claim_text, coverage.word_min_len, &allowed)
+        .into_iter()
+        .filter(|word| {
+            !entry
+                .locators
+                .iter()
+                .any(|locator| tokens::is_covered_case_insensitive(&locator.exact, word))
+        })
+        .collect();
+    if uncovered.is_empty() {
+        return Vec::new();
+    }
+    vec![issue(
+        issue_code::UNCOVERED_WORD,
+        severity,
+        format!(
+            "claim {} uses {} word(s) that appear in no locator: {}",
+            entry.claim,
+            uncovered.len(),
+            uncovered
+                .iter()
+                .map(|word| format!("{word:?}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Some(entry.claim),
+        None,
+    )]
 }
 
 fn check_weak_sections(

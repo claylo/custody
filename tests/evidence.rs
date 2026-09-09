@@ -193,6 +193,7 @@ evidence:
 fn reports_unknown_and_unused_sources() {
     let claim = "Transport remained laminar.".to_owned();
     let summary = SummaryDocument {
+        exempt_words: Vec::new(),
         id: "smith-2019".to_owned(),
         claims: vec![claim.clone()],
         evidence: Some(Evidence {
@@ -269,4 +270,23 @@ evidence:
             backend: mutool-native
 "#
     )
+}
+
+#[test]
+fn exempt_words_gathers_author_surnames_from_dotted_paths() {
+    let yaml = "id: x\ncitation:\n  authors:\n    - \"Bartholomew, Kim\"\n    - \"Horowitz, Leonard M.\"\n  title: t\nfindings: []\n";
+    let words = receipts::evidence::exempt_words(
+        yaml,
+        &["citation.authors".to_owned(), "missing.path".to_owned()],
+    )
+    .unwrap();
+    assert_eq!(
+        words,
+        vec!["bartholomew", "horowitz", "kim", "leonard", "m"]
+    );
+    assert!(
+        receipts::evidence::exempt_words(yaml, &[])
+            .unwrap()
+            .is_empty()
+    );
 }

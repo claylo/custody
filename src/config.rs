@@ -272,10 +272,36 @@ fn unexpected(value: &Value) -> serde::de::Unexpected<'_> {
 }
 
 /// Which claim-token gaps are reported, and how loudly.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct CoverageConfig {
+    /// Numbers, number words, and quoted phrases (the material tokens).
     pub tokens: TokenSeverity,
+    /// Every content word of the claim, not only the material tokens. A
+    /// qualifier the summary added ("interview prototype" for "prototype")
+    /// appears in no locator and is reported. Off by default because it
+    /// forces claims to be written in the source's own words.
+    pub words: TokenSeverity,
+    /// Shortest word that `words` checks; shorter ones are grammar.
+    pub word_min_len: usize,
+    /// Words exempt from the `words` check: a corpus's framing vocabulary
+    /// ("reports", "authors"), lowercase.
+    pub allowed_words: Vec<String>,
+    /// Dotted paths into each summary whose string values are exempt too,
+    /// for names the claims may cite: `[citation.authors]`.
+    pub allowed_from: Vec<String>,
+}
+
+impl Default for CoverageConfig {
+    fn default() -> Self {
+        Self {
+            tokens: TokenSeverity::default(),
+            words: TokenSeverity::Off,
+            word_min_len: 4,
+            allowed_words: Vec::new(),
+            allowed_from: Vec::new(),
+        }
+    }
 }
 
 /// Sections whose evidence is treated as weak.

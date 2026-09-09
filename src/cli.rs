@@ -724,7 +724,10 @@ fn locate(corpus: &Corpus, tools: &PdfTools, args: &LocateArgs, json: bool) -> R
         bail!("--column requires --line");
     }
     let summary_path = corpus.summary_path(&args.id)?;
-    let summary = parse_summary(&corpus.read_contained_text(&summary_path)?, corpus.terms())?;
+    let summary_text = corpus.read_contained_text(&summary_path)?;
+    let mut summary = parse_summary(&summary_text, corpus.terms())?;
+    summary.exempt_words =
+        crate::evidence::exempt_words(&summary_text, &corpus.coverage_config().allowed_from)?;
     if summary.id != args.id {
         bail!(
             "summary ID {:?} does not match filename ID {:?}",
@@ -1272,8 +1275,11 @@ fn truncate(text: &str, max_chars: usize) -> String {
 fn read_summary(corpus: &Corpus, id: &str) -> Result<crate::evidence::SummaryDocument> {
     let path = corpus.summary_path(id)?;
     let source = corpus.read_contained_text(&path)?;
-    parse_summary(&source, corpus.terms())
-        .with_context(|| format!("failed to parse {}", path.display()))
+    let mut summary = parse_summary(&source, corpus.terms())
+        .with_context(|| format!("failed to parse {}", path.display()))?;
+    summary.exempt_words =
+        crate::evidence::exempt_words(&source, &corpus.coverage_config().allowed_from)?;
+    Ok(summary)
 }
 
 fn summary_ids(corpus: &Corpus) -> Result<Vec<String>> {

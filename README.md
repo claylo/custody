@@ -144,6 +144,23 @@ are no hidden machine-wide layers.
 - `warn` — uncovered tokens produce warnings, not errors.
 - `off` — disables required-token enforcement.
 
+`coverage.words` extends the check to every content word of the claim, so a
+qualifier the summary added to an otherwise verbatim sentence ("interview
+prototype" where the source says "prototype") is reported as `uncovered_word`.
+It takes the same `error` / `warn` / `off` values and is `off` by default,
+because it forces claims to be written in the source's own words. Words shorter
+than `coverage.word_min_len` (default 4) and a fixed list of grammar words are
+skipped; `coverage.allowed_words` exempts a corpus's framing vocabulary:
+
+```yaml
+coverage:
+  tokens: error
+  words: error
+  word_min_len: 4
+  allowed_words: [reports, authors, argue, found]
+  allowed_from: [citation.authors]   # names the claims may cite, read from each summary
+```
+
 ### Weak sections
 
 `sections.weak` lists heading substrings that mark evidence as weak. If *every*

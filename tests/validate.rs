@@ -359,6 +359,7 @@ fn each_named_source_resolves_against_its_own_files() {
 
     let claim = "A claim bound to both sources.".to_owned();
     let summary = SummaryDocument {
+        exempt_words: Vec::new(),
         id: "smith-2019".to_owned(),
         claims: vec![claim.clone()],
         evidence: Some(Evidence {
@@ -645,6 +646,7 @@ fn weak_section_does_not_fire_when_one_locator_is_not_weak() {
     );
     let claim = "A claim bound to literal source evidence.".to_owned();
     let summary = SummaryDocument {
+        exempt_words: Vec::new(),
         id: "smith-2019".to_owned(),
         claims: vec![claim.clone()],
         evidence: Some(Evidence {
@@ -869,6 +871,7 @@ impl Fixture {
             .unwrap();
         let claim = claim.to_owned();
         SummaryDocument {
+            exempt_words: Vec::new(),
             id: "smith-2019".to_owned(),
             claims: vec![claim.clone()],
             evidence: Some(Evidence {
@@ -908,4 +911,97 @@ impl Fixture {
             review: None,
         }
     }
+}
+
+#[test]
+fn coverage_words_reports_a_qualifier_the_claim_added() {
+    let fixture = Fixture::with_config(
+        "The fearful prototype is characterized by an avoidance of close relationships.\n",
+        "cache:\n  root: \".cache/pdf-text\"\ncoverage:\n  words: error\n",
+    );
+    let summary = fixture.summary_for(
+        "The fearful interview prototype is characterized by an avoidance of close relationships.",
+        "The fearful prototype is characterized by an avoidance of close relationships.",
+        PdfBackend::MutoolNative,
+    );
+
+    let report = validate_document(
+        &fixture.corpus,
+        &summary,
+        &FakePdf {
+            pages: HashMap::from([(
+                (PdfBackend::MutoolNative, 1),
+                "The fearful prototype is characterized by an avoidance of close relationships."
+                    .to_owned(),
+            )]),
+        },
+        false,
+    );
+
+    let word_issues: Vec<_> = report
+        .issues
+        .iter()
+        .filter(|issue| issue.code == "uncovered_word")
+        .collect();
+    assert_eq!(word_issues.len(), 1, "{:?}", report.issues);
+    assert!(
+        word_issues[0].message.contains("\"interview\""),
+        "{word_issues:?}"
+    );
+    assert!(
+        !word_issues[0].message.contains("\"fearful\""),
+        "{word_issues:?}"
+    );
+    assert_eq!(word_issues[0].severity, Severity::Error);
+}
+
+#[test]
+fn coverage_words_is_off_by_default_and_honours_the_allowlist() {
+    let fixture = Fixture::new("The fearful prototype is characterized by avoidance.\n");
+    let summary = fixture.summary_for(
+        "The authors report that the fearful interview prototype is characterized by avoidance.",
+        "The fearful prototype is characterized by avoidance.",
+        PdfBackend::MutoolNative,
+    );
+    let pages = HashMap::from([(
+        (PdfBackend::MutoolNative, 1),
+        "The fearful prototype is characterized by avoidance.".to_owned(),
+    )]);
+
+    let report = validate_document(
+        &fixture.corpus,
+        &summary,
+        &FakePdf {
+            pages: pages.clone(),
+        },
+        false,
+    );
+    assert!(
+        !report
+            .issues
+            .iter()
+            .any(|issue| issue.code == "uncovered_word"),
+        "{:?}",
+        report.issues
+    );
+
+    let fixture = Fixture::with_config(
+        "The fearful prototype is characterized by avoidance.\n",
+        "cache:\n  root: \".cache/pdf-text\"\ncoverage:\n  words: warn\n  allowed_words: [authors, report]\n",
+    );
+    let summary = fixture.summary_for(
+        "The authors report that the fearful interview prototype is characterized by avoidance.",
+        "The fearful prototype is characterized by avoidance.",
+        PdfBackend::MutoolNative,
+    );
+    let report = validate_document(&fixture.corpus, &summary, &FakePdf { pages }, false);
+    let word_issues: Vec<_> = report
+        .issues
+        .iter()
+        .filter(|issue| issue.code == "uncovered_word")
+        .collect();
+    assert_eq!(word_issues.len(), 1, "{:?}", report.issues);
+    assert_eq!(word_issues[0].severity, Severity::Warning);
+    assert!(word_issues[0].message.contains("\"interview\""));
+    assert!(!word_issues[0].message.contains("\"authors\""));
 }

@@ -347,6 +347,7 @@ fn page(number: usize, text: &str) -> ExtractedPage {
 
 fn summary(claims: &[&str]) -> SummaryDocument {
     SummaryDocument {
+        exempt_words: Vec::new(),
         id: "smith-2019".to_owned(),
         claims: claims.iter().map(|claim| (*claim).to_owned()).collect(),
         evidence: None,

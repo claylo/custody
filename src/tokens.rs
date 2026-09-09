@@ -240,3 +240,95 @@ fn flush_run(run: &mut Vec<&str>, results: &mut Vec<String>) {
 fn is_capitalized(word: &str) -> bool {
     word.starts_with(char::is_uppercase) && word.chars().skip(1).any(char::is_lowercase)
 }
+
+/// Grammar words that `coverage.words` never requires a locator to carry.
+///
+/// Kept to function words: determiners, pronouns, prepositions,
+/// conjunctions, auxiliaries, and comparatives. A corpus adds its own
+/// framing vocabulary through `coverage.allowed_words`.
+const STOP_WORDS: &[&str] = &[
+    "about", "above", "across", "after", "again", "against", "along", "also", "among", "another",
+    "any", "are", "around", "because", "been", "before", "being", "below", "between", "beyond",
+    "both", "but", "can", "cannot", "could", "did", "does", "doing", "down", "during", "each",
+    "either", "else", "even", "ever", "every", "few", "for", "from", "further", "had", "has",
+    "have", "having", "her", "here", "hers", "him", "his", "how", "however", "into", "its",
+    "itself", "just", "less", "many", "may", "might", "more", "most", "much", "must", "neither",
+    "nor", "not", "off", "once", "one", "only", "onto", "other", "others", "our", "ours", "out",
+    "over", "own", "per", "same", "several", "shall", "she", "should", "since", "some", "still",
+    "such", "than", "that", "the", "their", "theirs", "them", "then", "there", "these", "they",
+    "this", "those", "though", "through", "thus", "too", "toward", "towards", "under", "until",
+    "upon", "very", "was", "were", "what", "when", "where", "whereas", "whether", "which", "while",
+    "who", "whom", "whose", "why", "will", "with", "within", "without", "would", "yet",
+];
+
+/// The content words a claim commits to when `coverage.words` is on.
+///
+/// Lowercase alphabetic runs of at least `min_len` letters, split on
+/// hyphens and apostrophes, minus grammar words and the corpus allowlist.
+/// Digits are the material-token rule's business and are skipped here.
+#[must_use]
+pub fn content_words(claim: &str, min_len: usize, allowed: &[String]) -> Vec<String> {
+    let normalized = normalize(claim).to_ascii_lowercase();
+    let mut words = BTreeSet::new();
+    for raw in normalized.split(|c: char| !c.is_ascii_alphabetic()) {
+        if raw.len() < min_len
+            || STOP_WORDS.contains(&raw)
+            || allowed.iter().any(|word| word.eq_ignore_ascii_case(raw))
+        {
+            continue;
+        }
+        words.insert(raw.to_owned());
+    }
+    words.into_iter().collect()
+}
+
+#[cfg(test)]
+mod content_word_tests {
+    use super::*;
+
+    #[test]
+    fn keeps_content_words_and_drops_grammar_and_short_ones() {
+        let words = content_words(
+            "The fearful interview prototype was characterized by an avoidance of close relationships.",
+            4,
+            &[],
+        );
+        assert_eq!(
+            words,
+            vec![
+                "avoidance",
+                "characterized",
+                "close",
+                "fearful",
+                "interview",
+                "prototype",
+                "relationships"
+            ]
+        );
+    }
+
+    #[test]
+    fn splits_hyphens_and_apostrophes_and_honours_the_allowlist() {
+        let words = content_words(
+            "Self-reported sociability's sex-controlled correlations; the authors argue.",
+            4,
+            &["authors".to_owned(), "argue".to_owned()],
+        );
+        assert_eq!(
+            words,
+            vec![
+                "controlled",
+                "correlations",
+                "reported",
+                "self",
+                "sociability"
+            ]
+        );
+    }
+
+    #[test]
+    fn digits_and_quoted_phrases_are_left_to_the_token_rule() {
+        let words = content_words("Recovered 4.18 years after \"the breakup\".", 4, &[]);
+        assert_eq!(words, vec!["breakup", "recovered", "years"]);
+    }
+}

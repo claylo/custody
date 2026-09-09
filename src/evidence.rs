@@ -23,6 +23,10 @@ pub const DEFAULT_SOURCE: &str = "default";
 #[derive(Debug, Clone, Deserialize)]
 pub struct SummaryDocument {
     pub id: String,
+    /// Words exempt from `coverage.words` for this summary, gathered from the
+    /// fields `coverage.allowed_from` names (author surnames, for one).
+    #[serde(skip)]
+    pub exempt_words: Vec<String>,
     pub claims: Vec<String>,
     #[serde(default)]
     pub evidence: Option<Evidence>,
@@ -196,6 +200,7 @@ define_issue_codes! {
     UNUSED_SOURCE => ("unused_source", Some(1), "Declared source is not cited by any locator"),
     UNKNOWN_SOURCE_TEMPLATE => ("unknown_source_template", Some(1), "No configured templates for a declared source name"),
     UNCOVERED_TOKEN => ("uncovered_token", Some(1), "A required claim token appears in no locator"),
+    UNCOVERED_WORD => ("uncovered_word", Some(1), "A content word of the claim appears in no locator (coverage.words)"),
     STALE_SECTION => ("stale_section", Some(1), "Recorded section path disagrees with the source"),
     OCR_DISABLED => ("ocr_disabled", Some(1), "Locator uses OCR but OCR is disabled in configuration"),
     STALE_REVIEW_CLAIM => ("stale_review_claim", Some(1), "Review claim_sha256 does not match current claim text"),
@@ -540,4 +545,40 @@ pub(crate) fn issue(
         claim,
         locator,
     }
+}
+
+/// Collect the words at the dotted `paths` of a summary document, for
+/// `coverage.allowed_from`. Each path names a string or a list of strings
+/// (`citation.authors`); every alphabetic run in those values, lowercased,
+/// becomes an exempt word. A missing path contributes nothing.
+pub fn exempt_words(content: &str, paths: &[String]) -> Result<Vec<String>> {
+    if paths.is_empty() {
+        return Ok(Vec::new());
+    }
+    let value = librebar::config::parse_yaml(content).context("failed to parse summary YAML")?;
+    let mut words = std::collections::BTreeSet::new();
+    for path in paths {
+        let mut node = &value;
+        for segment in path.split('.') {
+            let Some(next) = node.get(segment) else {
+                node = &Value::Null;
+                break;
+            };
+            node = next;
+        }
+        let mut strings = Vec::new();
+        match node {
+            Value::String(text) => strings.push(text.as_str()),
+            Value::Array(items) => strings.extend(items.iter().filter_map(Value::as_str)),
+            _ => {}
+        }
+        for text in strings {
+            for word in text.split(|c: char| !c.is_ascii_alphabetic()) {
+                if !word.is_empty() {
+                    words.insert(word.to_ascii_lowercase());
+                }
+            }
+        }
+    }
+    Ok(words.into_iter().collect())
 }
