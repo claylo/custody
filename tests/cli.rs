@@ -1267,3 +1267,15 @@ evidence:
         "message should not leak the canonical vocabulary: {stderr}"
     );
 }
+
+#[test]
+fn audit_skips_hidden_entries_such_as_sync_directories() {
+    let corpus = fixture_corpus();
+    std::fs::create_dir(corpus.path().join("summaries/.tmp.driveupload")).unwrap();
+    std::fs::write(corpus.path().join("summaries/.hidden.yaml"), "id: hidden\n").unwrap();
+
+    let output = receipts(corpus.path(), &["audit"]);
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(!stdout(&output).contains("hidden"), "{}", stdout(&output));
+}

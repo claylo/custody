@@ -1332,6 +1332,12 @@ fn walk_summaries(
         if file_type.is_symlink() {
             continue;
         }
+        // Hidden entries are never summaries: editor and sync tools drop
+        // `.tmp.driveupload`-style directories into the corpus at will, and a
+        // whole-corpus audit must not fail on them.
+        if entry.file_name().to_string_lossy().starts_with('.') {
+            continue;
+        }
         if file_type.is_dir() {
             if depth >= max_depth {
                 bail!(
