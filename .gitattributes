@@ -1,0 +1,61 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Rust sources - always LF
+*.rs text eol=lf
+*.toml text eol=lf
+
+# Scripts - always LF (shell scripts break with CRLF)
+*.sh text eol=lf
+*.bash text eol=lf
+*.zsh text eol=lf
+
+# Config files - always LF
+.editorconfig text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+
+# Documentation
+*.md text eol=lf
+*.txt text eol=lf
+LICENSE* text eol=lf
+
+# Graphics
+*.svg text eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+
+# Archives
+*.zip binary
+*.tar binary
+*.gz binary
+*.tgz binary
+
+# Exclude from `git archive` output (GitHub source tarballs, which Homebrew
+# formulae build from). This does NOT affect `cargo publish`: crate contents
+# come from Cargo.toml `include`/`exclude`.
+.claude/ export-ignore
+.github/ export-ignore
+AGENTS.md export-ignore
+.markdownlint.yaml export-ignore
+justfile export-ignore
+docs/ export-ignore
+record/ export-ignore
+scripts/ export-ignore
+.pre-commit-config.yaml export-ignore
+
+# cased audits
+record/audits/**/report.html linguist-generated=true
+record/audits/**/findings.yaml linguist-generated=true
+record/audits/**/recon.yaml linguist-generated=true
+record/audits/**/README.md linguist-generated=true
+record/audits/**/CLAUDE.md linguist-generated=true
+record/audits/**/AGENTS.md linguist-generated=true
+record/audits/**/assets/*.svg linguist-generated=true

@@ -75,7 +75,7 @@ impl Mutool {
     ///
     /// The XML writer is used rather than `stext.json` because the JSON writer
     /// emits one "line" object per font run, so a typeset line whose glyphs
-    /// come from two publisher font subsets (`attachme` + `nt`, `Bowlby` +
+    /// come from two publisher font subsets (`adjustme` + `nt`, `Helmert` +
     /// `’` + `s`) arrives as several objects and any join re-creates the seam
     /// as whitespace. The XML `<line text="…">` attribute is the whole line.
     fn stext(&self, pdf: &Path, page: Option<Page>) -> Result<String> {

@@ -8,7 +8,7 @@
 //!   becomes one ASCII space.
 //! - **dehyphenate**: a hyphen at the end of a line, followed by a line that
 //!   starts with a lowercase letter, is a typesetter's line break inside a word.
-//!   The hyphen and the break are removed (`attach-\nment` → `attachment`).
+//!   The hyphen and the break are removed (`adjust-\nment` → `adjustment`).
 //!   Only whitespace runs containing a line break qualify; `self- report` on
 //!   one line is left alone.
 //! - **quotes**: typographic single and double quotes fold to their ASCII

@@ -278,7 +278,7 @@ pub struct CoverageConfig {
     /// Numbers, number words, and quoted phrases (the material tokens).
     pub tokens: TokenSeverity,
     /// Every content word of the claim, not only the material tokens. A
-    /// qualifier the summary added ("interview prototype" for "prototype")
+    /// qualifier the summary added ("survey transect" for "transect")
     /// appears in no locator and is reported. Off by default because it
     /// forces claims to be written in the source's own words.
     pub words: TokenSeverity,

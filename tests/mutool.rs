@@ -44,21 +44,23 @@ fn leaves_fragmented_pdf_tokens_unrepaired() {
 }
 
 /// `MuPDF`'s JSON writer splits a typeset line at every font change, which
-/// turned publisher font-subset seams (`attachme` + `nt`, `Bowlby` + `’` + `s`)
+/// turned publisher font-subset seams (`adjustme` + `nt`, `Helmert` + `’` + `s`)
 /// into spaces. The XML `<line text="…">` attribute is the whole line.
 #[test]
 fn keeps_font_runs_inside_one_line() {
     let pages = parse_stext(include_str!("fixtures/mutool-font-runs.xml")).expect("fixture parses");
 
     let text = &pages[0].text;
-    assert!(text.contains("informed by attachment theory and research"));
-    assert!(text.contains("congruently with Bowlby's attachment"));
-    assert!(!text.contains("attachme nt"));
-    assert!(!text.contains("Bowlby ' s"));
+    assert!(text.contains("informed by adjustment theory and research"));
+    assert!(text.contains("congruently with Helmert's adjustment"));
+    assert!(!text.contains("adjustme nt"));
+    assert!(!text.contains("Helmert ' s"));
     // Attribute entities are decoded and the hyphenated block still rejoins.
-    assert!(text.contains("sequelae, considered from the perspective of Ainsworth & Wall (1978)."));
+    assert!(
+        text.contains("consequences, considered from the perspective of Gauss & Weber (1832).")
+    );
     // Bounding boxes come from the x0 y0 x1 y1 attribute form.
-    let bbox = matching_bbox(&pages[0], "congruently with Bowlby's attachment").unwrap();
+    let bbox = matching_bbox(&pages[0], "congruently with Helmert's adjustment").unwrap();
     assert_eq!(
         (bbox.x, bbox.y, bbox.width, bbox.height),
         (59.9811, 230.8231, 347.8461 - 59.9811, 239.2021 - 230.8231)
@@ -117,18 +119,18 @@ fn preserves_lines_without_geometry() {
 fn rejoins_words_hyphenated_across_stext_lines() {
     let pages = parse_stext(
         r#"<document><page id="page1"><block>
-            <line bbox="10 20 210 32" text="The infant showed an attach-"></line>
-            <line bbox="10 34 230 46" text="ment behaviour toward the mother."></line>
+            <line bbox="10 20 210 32" text="The sensor showed an adjust-"></line>
+            <line bbox="10 34 230 46" text="ment behaviour toward the target."></line>
         </block></page></document>"#,
     )
     .expect("fixture parses");
 
     assert_eq!(
         pages[0].text,
-        "The infant showed an attachment behaviour toward the mother."
+        "The sensor showed an adjustment behaviour toward the target."
     );
     // The match crosses the rejoined hyphen; both lines' boxes are unioned.
-    let bbox = matching_bbox(&pages[0], "an attachment behaviour").unwrap();
+    let bbox = matching_bbox(&pages[0], "an adjustment behaviour").unwrap();
     assert_eq!(
         (bbox.x, bbox.y, bbox.width, bbox.height),
         (10.0, 20.0, 220.0, 26.0)

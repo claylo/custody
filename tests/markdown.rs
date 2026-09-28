@@ -132,13 +132,13 @@ fn counts_zero_one_and_multiple_exact_occurrences() {
 #[test]
 fn soft_breaks_inside_a_paragraph_are_dehyphenated() {
     let units =
-        parse_units("The infant showed an attach-\nment behaviour.\n\nNext para-\ngraph.\n");
+        parse_units("The sensor showed an adjust-\nment behaviour.\n\nNext para-\ngraph.\n");
 
     let texts: Vec<_> = units.iter().map(|unit| unit.text.as_str()).collect();
     assert_eq!(
         texts,
         vec![
-            "The infant showed an attachment behaviour.",
+            "The sensor showed an adjustment behaviour.",
             "Next paragraph."
         ]
     );
@@ -146,7 +146,7 @@ fn soft_breaks_inside_a_paragraph_are_dehyphenated() {
 
 #[test]
 fn hard_breaks_and_br_tags_count_as_line_breaks() {
-    let units = parse_units("attach-  \nment one<br>attach-\nment two\n");
+    let units = parse_units("adjust-  \nment one<br>adjust-\nment two\n");
 
-    assert_eq!(units[0].text, "attachment one attachment two");
+    assert_eq!(units[0].text, "adjustment one adjustment two");
 }

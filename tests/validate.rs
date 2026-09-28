@@ -916,12 +916,12 @@ impl Fixture {
 #[test]
 fn coverage_words_reports_a_qualifier_the_claim_added() {
     let fixture = Fixture::with_config(
-        "The fearful prototype is characterized by an avoidance of close relationships.\n",
+        "The coastal transect is characterized by an absence of loose sediments.\n",
         "cache:\n  root: \".cache/pdf-text\"\ncoverage:\n  words: error\n",
     );
     let summary = fixture.summary_for(
-        "The fearful interview prototype is characterized by an avoidance of close relationships.",
-        "The fearful prototype is characterized by an avoidance of close relationships.",
+        "The coastal survey transect is characterized by an absence of loose sediments.",
+        "The coastal transect is characterized by an absence of loose sediments.",
         PdfBackend::MutoolNative,
     );
 
@@ -931,7 +931,7 @@ fn coverage_words_reports_a_qualifier_the_claim_added() {
         &FakePdf {
             pages: HashMap::from([(
                 (PdfBackend::MutoolNative, 1),
-                "The fearful prototype is characterized by an avoidance of close relationships."
+                "The coastal transect is characterized by an absence of loose sediments."
                     .to_owned(),
             )]),
         },
@@ -945,11 +945,11 @@ fn coverage_words_reports_a_qualifier_the_claim_added() {
         .collect();
     assert_eq!(word_issues.len(), 1, "{:?}", report.issues);
     assert!(
-        word_issues[0].message.contains("\"interview\""),
+        word_issues[0].message.contains("\"survey\""),
         "{word_issues:?}"
     );
     assert!(
-        !word_issues[0].message.contains("\"fearful\""),
+        !word_issues[0].message.contains("\"coastal\""),
         "{word_issues:?}"
     );
     assert_eq!(word_issues[0].severity, Severity::Error);
@@ -957,15 +957,15 @@ fn coverage_words_reports_a_qualifier_the_claim_added() {
 
 #[test]
 fn coverage_words_is_off_by_default_and_honours_the_allowlist() {
-    let fixture = Fixture::new("The fearful prototype is characterized by avoidance.\n");
+    let fixture = Fixture::new("The coastal transect is characterized by erosion.\n");
     let summary = fixture.summary_for(
-        "The authors report that the fearful interview prototype is characterized by avoidance.",
-        "The fearful prototype is characterized by avoidance.",
+        "The authors report that the coastal survey transect is characterized by erosion.",
+        "The coastal transect is characterized by erosion.",
         PdfBackend::MutoolNative,
     );
     let pages = HashMap::from([(
         (PdfBackend::MutoolNative, 1),
-        "The fearful prototype is characterized by avoidance.".to_owned(),
+        "The coastal transect is characterized by erosion.".to_owned(),
     )]);
 
     let report = validate_document(
@@ -986,12 +986,12 @@ fn coverage_words_is_off_by_default_and_honours_the_allowlist() {
     );
 
     let fixture = Fixture::with_config(
-        "The fearful prototype is characterized by avoidance.\n",
+        "The coastal transect is characterized by erosion.\n",
         "cache:\n  root: \".cache/pdf-text\"\ncoverage:\n  words: warn\n  allowed_words: [authors, report]\n",
     );
     let summary = fixture.summary_for(
-        "The authors report that the fearful interview prototype is characterized by avoidance.",
-        "The fearful prototype is characterized by avoidance.",
+        "The authors report that the coastal survey transect is characterized by erosion.",
+        "The coastal transect is characterized by erosion.",
         PdfBackend::MutoolNative,
     );
     let report = validate_document(&fixture.corpus, &summary, &FakePdf { pages }, false);
@@ -1002,6 +1002,6 @@ fn coverage_words_is_off_by_default_and_honours_the_allowlist() {
         .collect();
     assert_eq!(word_issues.len(), 1, "{:?}", report.issues);
     assert_eq!(word_issues[0].severity, Severity::Warning);
-    assert!(word_issues[0].message.contains("\"interview\""));
+    assert!(word_issues[0].message.contains("\"survey\""));
     assert!(!word_issues[0].message.contains("\"authors\""));
 }

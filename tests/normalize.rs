@@ -25,8 +25,8 @@ fn collapses_whitespace_runs_and_trims() {
 #[test]
 fn rejoins_a_word_hyphenated_across_a_line_break() {
     assert_eq!(
-        normalize_with("attach-\nment figure", all()),
-        "attachment figure"
+        normalize_with("adjust-\nment figure", all()),
+        "adjustment figure"
     );
     assert_eq!(normalize_with("differ-  \r\n  ences", all()), "differences");
     assert_eq!(normalize_with("soft\u{00AD}\nhyphen", all()), "softhyphen");
@@ -51,7 +51,7 @@ fn dehyphenation_can_be_disabled() {
         dehyphenate: false,
         quotes: true,
     };
-    assert_eq!(normalize_with("attach-\nment", options), "attach- ment");
+    assert_eq!(normalize_with("adjust-\nment", options), "adjust- ment");
 }
 
 #[test]
@@ -66,11 +66,8 @@ fn folds_typographic_quotes_to_ascii() {
     // Cambridge-style doubled single quotes fold to doubled apostrophes,
     // which is what both sides of a comparison will then contain.
     assert_eq!(
-        normalize_with(
-            "A \u{2018}\u{2018}rebound\u{2019}\u{2019} relationship",
-            all()
-        ),
-        "A ''rebound'' relationship"
+        normalize_with("A \u{2018}\u{2018}rebound\u{2019}\u{2019} effect", all()),
+        "A ''rebound'' effect"
     );
 }
 
@@ -90,7 +87,7 @@ fn quote_folding_can_be_disabled() {
 fn whitespace_only_matches_the_original_behaviour() {
     let options = NormalizeOptions::whitespace_only();
     assert_eq!(
-        normalize_with("attach-\nment \u{2019}", options),
-        "attach- ment \u{2019}"
+        normalize_with("adjust-\nment \u{2019}", options),
+        "adjust- ment \u{2019}"
     );
 }

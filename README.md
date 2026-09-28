@@ -145,8 +145,8 @@ are no hidden machine-wide layers.
 - `off` — disables required-token enforcement.
 
 `coverage.words` extends the check to every content word of the claim, so a
-qualifier the summary added to an otherwise verbatim sentence ("interview
-prototype" where the source says "prototype") is reported as `uncovered_word`.
+qualifier the summary added to an otherwise verbatim sentence ("survey
+transect" where the source says "transect") is reported as `uncovered_word`.
 It takes the same `error` / `warn` / `off` values and is `off` by default,
 because it forces claims to be written in the source's own words. Words shorter
 than `coverage.word_min_len` (default 4) and a fixed list of grammar words are
@@ -178,7 +178,7 @@ configured under `normalize:` and default to on.
 - **whitespace** — every run of Unicode whitespace becomes one ASCII space.
 - **dehyphenate** — a hyphen at the end of a line followed by a line starting
   with a lowercase letter is a typesetter's break inside a word; the hyphen and
-  the break are removed (`attach-` / `ment` → `attachment`). Only whitespace
+  the break are removed (`adjust-` / `ment` → `adjustment`). Only whitespace
   runs that contain a line break qualify, so `self- report` on one line is
   untouched, and `Main-` / `Hesse` keeps its hyphen because the next line
   starts with a capital.

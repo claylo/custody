@@ -289,20 +289,20 @@ mod content_word_tests {
     #[test]
     fn keeps_content_words_and_drops_grammar_and_short_ones() {
         let words = content_words(
-            "The fearful interview prototype was characterized by an avoidance of close relationships.",
+            "The coastal survey transect was characterized by an absence of loose sediments.",
             4,
             &[],
         );
         assert_eq!(
             words,
             vec![
-                "avoidance",
+                "absence",
                 "characterized",
-                "close",
-                "fearful",
-                "interview",
-                "prototype",
-                "relationships"
+                "coastal",
+                "loose",
+                "sediments",
+                "survey",
+                "transect"
             ]
         );
     }
@@ -310,7 +310,7 @@ mod content_word_tests {
     #[test]
     fn splits_hyphens_and_apostrophes_and_honours_the_allowlist() {
         let words = content_words(
-            "Self-reported sociability's sex-controlled correlations; the authors argue.",
+            "Self-levelling instrument's temperature-controlled readings; the authors argue.",
             4,
             &["authors".to_owned(), "argue".to_owned()],
         );
@@ -318,17 +318,18 @@ mod content_word_tests {
             words,
             vec![
                 "controlled",
-                "correlations",
-                "reported",
+                "instrument",
+                "levelling",
+                "readings",
                 "self",
-                "sociability"
+                "temperature"
             ]
         );
     }
 
     #[test]
     fn digits_and_quoted_phrases_are_left_to_the_token_rule() {
-        let words = content_words("Recovered 4.18 years after \"the breakup\".", 4, &[]);
-        assert_eq!(words, vec!["breakup", "recovered", "years"]);
+        let words = content_words("Recovered 4.18 years after \"the washout\".", 4, &[]);
+        assert_eq!(words, vec!["recovered", "washout", "years"]);
     }
 }

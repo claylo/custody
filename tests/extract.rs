@@ -20,7 +20,7 @@ fn stderr(output: &std::process::Output) -> String {
 
 /// Two text objects on one page: a heading-like line and a two-line paragraph
 /// whose first line ends in a hyphen. `MuPDF` groups the paragraph's lines into
-/// one block, so dehyphenation must rejoin `attach-` and `ment`.
+/// one block, so dehyphenation must rejoin `adjust-` and `ment`.
 const TWO_BLOCK_PDF: &str = "%PDF-1.4\n\
     1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n\
     2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n\
@@ -29,7 +29,7 @@ const TWO_BLOCK_PDF: &str = "%PDF-1.4\n\
     4 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n\
     5 0 obj<</Length 170>>stream\n\
     BT /F1 18 Tf 72 720 Td (Results) Tj ET\n\
-    BT /F1 12 Tf 72 600 Td (The infant showed an attach-) Tj 0 -14 Td (ment behaviour toward the mother.) Tj ET\n\
+    BT /F1 12 Tf 72 600 Td (The sensor showed an adjust-) Tj 0 -14 Td (ment behaviour toward the target.) Tj ET\n\
     endstream\nendobj\n\
     trailer<</Root 1 0 R>>\n";
 
@@ -57,7 +57,7 @@ fn corpus() -> tempfile::TempDir {
     fs::write(temp.path().join("pdfs/smith-2019.pdf"), TWO_BLOCK_PDF).unwrap();
     fs::write(
         temp.path().join("summaries/smith-2019.yaml"),
-        "id: smith-2019\nclaims:\n  - The infant showed attachment behaviour toward the mother.\n",
+        "id: smith-2019\nclaims:\n  - The sensor showed adjustment behaviour toward the target.\n",
     )
     .unwrap();
     temp
@@ -76,7 +76,7 @@ fn extract_prints_frontmatter_page_headings_and_dehyphenated_paragraphs() {
     assert!(text.contains("\n## Page 1\n"));
     assert!(text.contains("\nResults\n"));
     assert!(
-        text.contains("\nThe infant showed an attachment behaviour toward the mother.\n"),
+        text.contains("\nThe sensor showed an adjustment behaviour toward the target.\n"),
         "{text}"
     );
     assert!(!corpus.path().join("native/smith-2019.md").exists());
@@ -93,7 +93,7 @@ fn extract_write_targets_the_named_source_and_refuses_to_overwrite() {
     assert!(stdout(&output).contains("wrote native/smith-2019.md (1 pages, 2 paragraphs)"));
 
     let written = fs::read_to_string(corpus.path().join("native/smith-2019.md")).unwrap();
-    assert!(written.contains("attachment behaviour"));
+    assert!(written.contains("adjustment behaviour"));
     assert!(!corpus.path().join("md/smith-2019.md").exists());
 
     let again = custody(
@@ -133,7 +133,7 @@ fn extracted_markdown_binds_through_locate_and_check() {
         .arg(corpus.path())
         .args(["--format", "json", "locate", "smith-2019", "--claim", "0"])
         .args(["--source", "native"])
-        .args(["--exact", "showed an attachment behaviour"])
+        .args(["--exact", "showed an adjustment behaviour"])
         .output()
         .unwrap();
     assert!(located.status.success(), "{}", stderr(&located));
