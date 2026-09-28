@@ -1,12 +1,12 @@
 [package]
-name = "receipts"
+name = "custody"
 version = "0.1.0"
 publish = false
 edition = "2024"
 rust-version = "1.89"
 license = "Apache-2.0 OR MIT"
 description = "Deterministic evidence validation for LLM summaries of PDF sources"
-repository = "https://github.com/claylo/receipts"
+repository = "https://github.com/claylo/custody"
 keywords = ["pdf", "ocr", "evidence", "validation", "markdown"]
 categories = ["command-line-utilities", "text-processing"]
 

@@ -4,12 +4,12 @@ use std::{
     process::{Command, Output},
 };
 
-use receipts::coordinate::{ClaimIndex, Column, Line, Page};
-use receipts::evidence::{ClaimEvidence, Locator, MarkdownLocator, PdfBackend, PdfLocator};
-use receipts::hash::{sha256_bytes, sha256_file};
-use receipts::markdown::UnitKind;
-use receipts::propose::ProposalReport;
-use receipts::review::evidence_sha256;
+use custody::coordinate::{ClaimIndex, Column, Line, Page};
+use custody::evidence::{ClaimEvidence, Locator, MarkdownLocator, PdfBackend, PdfLocator};
+use custody::hash::{sha256_bytes, sha256_file};
+use custody::markdown::UnitKind;
+use custody::propose::ProposalReport;
+use custody::review::evidence_sha256;
 
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -17,52 +17,52 @@ struct ProposalEnvelope {
     summaries: Vec<ProposalReport>,
 }
 
-fn receipts(corpus: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_receipts"))
+fn custody(corpus: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_custody"))
         .arg("-C")
         .arg(corpus)
         .args(["--format", "text"])
         .args(args)
         .output()
-        .expect("receipts executes")
+        .expect("custody executes")
 }
 
-fn receipts_with_path(corpus: &Path, args: &[&str], path: &Path) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_receipts"))
+fn custody_with_path(corpus: &Path, args: &[&str], path: &Path) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_custody"))
         .arg("-C")
         .arg(corpus)
         .args(["--format", "text"])
         .args(args)
         .env("PATH", path)
         .output()
-        .expect("receipts executes")
+        .expect("custody executes")
 }
 
-fn receipts_json(corpus: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_receipts"))
+fn custody_json(corpus: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_custody"))
         .arg("-C")
         .arg(corpus)
         .args(["--format", "json"])
         .args(args)
         .output()
-        .expect("receipts executes")
+        .expect("custody executes")
 }
 
-fn receipts_auto(corpus: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_receipts"))
+fn custody_auto(corpus: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_custody"))
         .arg("-C")
         .arg(corpus)
         .args(args)
         .output()
-        .expect("receipts executes")
+        .expect("custody executes")
 }
 
 #[test]
 fn schema_declares_runtime_issue_codes() {
-    let output = Command::new(env!("CARGO_BIN_EXE_receipts"))
+    let output = Command::new(env!("CARGO_BIN_EXE_custody"))
         .arg("schema")
         .output()
-        .expect("receipts schema executes");
+        .expect("custody schema executes");
     assert!(output.status.success(), "{}", stderr(&output));
 
     let schema: serde_json::Value =
@@ -92,7 +92,7 @@ fn schema_declares_runtime_issue_codes() {
 #[test]
 fn targeted_check_fails_when_evidence_is_missing() {
     let corpus = fixture_corpus();
-    let output = receipts(corpus.path(), &["check", "missing-evidence"]);
+    let output = custody(corpus.path(), &["check", "missing-evidence"]);
 
     assert!(!output.status.success());
     assert!(stderr(&output).contains("missing evidence"));
@@ -101,7 +101,7 @@ fn targeted_check_fails_when_evidence_is_missing() {
 #[test]
 fn default_audit_reports_missing_without_failing() {
     let corpus = fixture_corpus();
-    let output = receipts(corpus.path(), &["audit"]);
+    let output = custody(corpus.path(), &["audit"]);
 
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(stdout(&output).contains("missing: 1"));
@@ -111,20 +111,20 @@ fn default_audit_reports_missing_without_failing() {
 fn process_environment_cannot_override_project_configuration() {
     let corpus = fixture_corpus();
     fs::write(
-        corpus.path().join("receipts.yaml"),
+        corpus.path().join("custody.yaml"),
         concat!(
             "corpus:\n  summaries: \"summaries/{id}.yaml\"\n",
             "cache:\n  root: \".cache/pdf-text\"\n",
         ),
     )
     .unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_receipts"))
+    let output = Command::new(env!("CARGO_BIN_EXE_custody"))
         .arg("-C")
         .arg(corpus.path())
         .args(["--format", "text", "audit"])
-        .env("RECEIPTS_CORPUS__SUMMARIES", "other/{id}.yaml")
+        .env("CUSTODY_CORPUS__SUMMARIES", "other/{id}.yaml")
         .output()
-        .expect("receipts executes");
+        .expect("custody executes");
 
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(stdout(&output).contains("missing: 1"));
@@ -142,7 +142,7 @@ fn audit_skips_symlinked_summary_entries() {
     )
     .unwrap();
 
-    let output = receipts(corpus.path(), &["audit"]);
+    let output = custody(corpus.path(), &["audit"]);
 
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(stdout(&output).contains("missing: 1"));
@@ -158,7 +158,7 @@ fn audit_rejects_summary_directories_deeper_than_the_template() {
     )
     .unwrap();
 
-    let output = receipts(corpus.path(), &["audit"]);
+    let output = custody(corpus.path(), &["audit"]);
 
     assert!(!output.status.success());
     assert!(stderr(&output).contains("summary discovery exceeded template depth"));
@@ -169,7 +169,7 @@ fn audit_discovers_summaries_at_the_configured_template_depth() {
     let corpus = tempfile::tempdir().unwrap();
     fs::create_dir_all(corpus.path().join("records/missing-evidence")).unwrap();
     fs::write(
-        corpus.path().join("receipts.yaml"),
+        corpus.path().join("custody.yaml"),
         concat!(
             "corpus:\n  summaries: \"records/{id}/summary.yaml\"\n",
             "cache:\n  root: \".cache/pdf-text\"\n",
@@ -187,7 +187,7 @@ fn audit_discovers_summaries_at_the_configured_template_depth() {
     )
     .unwrap();
 
-    let output = receipts(corpus.path(), &["audit"]);
+    let output = custody(corpus.path(), &["audit"]);
 
     assert!(output.status.success(), "{}", stderr(&output));
     assert_eq!(
@@ -201,7 +201,7 @@ fn audit_rejects_summary_below_the_configured_template_depth() {
     let corpus = tempfile::tempdir().unwrap();
     fs::create_dir_all(corpus.path().join("records/group/doc-001")).unwrap();
     fs::write(
-        corpus.path().join("receipts.yaml"),
+        corpus.path().join("custody.yaml"),
         concat!(
             "corpus:\n  summaries: \"records/{id}/summary.yaml\"\n",
             "cache:\n  root: \".cache/pdf-text\"\n",
@@ -214,7 +214,7 @@ fn audit_rejects_summary_below_the_configured_template_depth() {
     )
     .unwrap();
 
-    let output = receipts(corpus.path(), &["audit"]);
+    let output = custody(corpus.path(), &["audit"]);
 
     assert!(!output.status.success());
     assert!(stderr(&output).contains("summary discovery exceeded template depth"));
@@ -223,7 +223,7 @@ fn audit_rejects_summary_below_the_configured_template_depth() {
 #[test]
 fn strict_audit_fails_on_missing_evidence() {
     let corpus = fixture_corpus();
-    let output = receipts(corpus.path(), &["audit", "--strict"]);
+    let output = custody(corpus.path(), &["audit", "--strict"]);
 
     assert!(!output.status.success());
     assert!(stdout(&output).contains("missing: 1"));
@@ -232,7 +232,7 @@ fn strict_audit_fails_on_missing_evidence() {
 #[test]
 fn targeted_audit_accepts_summary_ids() {
     let corpus = fixture_corpus();
-    let output = receipts(corpus.path(), &["audit", "missing-evidence"]);
+    let output = custody(corpus.path(), &["audit", "missing-evidence"]);
 
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(stdout(&output).contains("missing: 1"));
@@ -246,7 +246,7 @@ fn audit_rejects_a_filename_id_mismatch() {
         "id: different-id\nclaims:\n  - A claim without evidence.\n",
     )
     .unwrap();
-    let output = receipts(corpus.path(), &["audit"]);
+    let output = custody(corpus.path(), &["audit"]);
 
     assert!(!output.status.success());
     assert!(stderr(&output).contains("id_mismatch"));
@@ -269,7 +269,7 @@ fn audit_rejects_a_summary_symlink_outside_the_corpus() {
     fs::remove_file(&summary).unwrap();
     symlink(&outside_summary, &summary).unwrap();
 
-    let output = receipts(corpus.path(), &["audit", "missing-evidence"]);
+    let output = custody(corpus.path(), &["audit", "missing-evidence"]);
 
     assert!(!output.status.success());
     assert!(stderr(&output).contains("resolves outside the corpus"));
@@ -284,7 +284,7 @@ fn audit_rejects_an_oversized_summary_before_reading_it() {
         .set_len(64 * 1024 * 1024 + 1)
         .unwrap();
 
-    let output = receipts(corpus.path(), &["audit", "missing-evidence"]);
+    let output = custody(corpus.path(), &["audit", "missing-evidence"]);
 
     assert!(!output.status.success());
     assert!(stderr(&output).contains("exceeds the 67108864-byte corpus text limit"));
@@ -293,7 +293,7 @@ fn audit_rejects_an_oversized_summary_before_reading_it() {
 #[test]
 fn quiet_audit_suppresses_non_error_output() {
     let corpus = fixture_corpus();
-    let output = receipts(corpus.path(), &["--quiet", "audit"]);
+    let output = custody(corpus.path(), &["--quiet", "audit"]);
 
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(stdout(&output).is_empty());
@@ -302,7 +302,7 @@ fn quiet_audit_suppresses_non_error_output() {
 #[test]
 fn doctor_reports_corpus_and_executables() {
     let corpus = fixture_corpus();
-    let output = receipts(corpus.path(), &["doctor"]);
+    let output = custody(corpus.path(), &["doctor"]);
 
     assert!(output.status.success(), "{}", stderr(&output));
     let output = stdout(&output);
@@ -317,7 +317,7 @@ fn doctor_reports_corpus_and_executables() {
 #[test]
 fn doctor_json_declares_the_machine_contract() {
     let corpus = fixture_corpus();
-    let output = receipts_json(corpus.path(), &["doctor"]);
+    let output = custody_json(corpus.path(), &["doctor"]);
 
     assert!(output.status.success(), "{}", stderr(&output));
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -353,7 +353,7 @@ fn closed_stdout_is_a_clean_exit() {
     let (writer, reader) = UnixStream::pair().unwrap();
     drop(reader);
     let writer: OwnedFd = writer.into();
-    let output = Command::new(env!("CARGO_BIN_EXE_receipts"))
+    let output = Command::new(env!("CARGO_BIN_EXE_custody"))
         .arg("-C")
         .arg(corpus.path())
         .arg("doctor")
@@ -372,11 +372,11 @@ fn closed_stdout_is_a_clean_exit() {
 fn doctor_reports_configured_ocr_profile() {
     let corpus = fixture_corpus();
     fs::write(
-        corpus.path().join("receipts.yaml"),
+        corpus.path().join("custody.yaml"),
         "cache:\n  root: \".cache/pdf-text\"\npdf:\n  ocr:\n    dpi: 600\n    lang: deu\n",
     )
     .unwrap();
-    let output = receipts(corpus.path(), &["doctor"]);
+    let output = custody(corpus.path(), &["doctor"]);
 
     assert!(output.status.success(), "{}", stderr(&output));
     let output = stdout(&output);
@@ -400,7 +400,7 @@ fn doctor_uses_and_reports_configured_external_tool_paths() {
     fs::set_permissions(&mutool, fs::Permissions::from_mode(0o755)).unwrap();
     fs::set_permissions(&tesseract, fs::Permissions::from_mode(0o755)).unwrap();
     fs::write(
-        corpus.path().join("receipts.yaml"),
+        corpus.path().join("custody.yaml"),
         format!(
             "cache:\n  root: \".cache/pdf-text\"\npdf:\n  tools:\n    mutool: \"{}\"\n    tesseract: \"{}\"\n",
             mutool.display(),
@@ -410,7 +410,7 @@ fn doctor_uses_and_reports_configured_external_tool_paths() {
     .unwrap();
     let empty_path = tempfile::tempdir().unwrap();
 
-    let output = receipts_with_path(corpus.path(), &["doctor"], empty_path.path());
+    let output = custody_with_path(corpus.path(), &["doctor"], empty_path.path());
     let stdout = stdout(&output);
     let mutool = mutool.canonicalize().unwrap();
     let tesseract = tesseract.canonicalize().unwrap();
@@ -436,7 +436,7 @@ fn doctor_rejects_unsupported_external_tool_versions() {
     fs::set_permissions(&mutool, fs::Permissions::from_mode(0o755)).unwrap();
     fs::set_permissions(&tesseract, fs::Permissions::from_mode(0o755)).unwrap();
     fs::write(
-        corpus.path().join("receipts.yaml"),
+        corpus.path().join("custody.yaml"),
         format!(
             "cache:\n  root: \".cache/pdf-text\"\npdf:\n  tools:\n    mutool: \"{}\"\n    tesseract: \"{}\"\n",
             mutool.display(),
@@ -446,7 +446,7 @@ fn doctor_rejects_unsupported_external_tool_versions() {
     .unwrap();
     let empty_path = tempfile::tempdir().unwrap();
 
-    let output = receipts_with_path(corpus.path(), &["doctor"], empty_path.path());
+    let output = custody_with_path(corpus.path(), &["doctor"], empty_path.path());
     let stdout = stdout(&output);
 
     assert!(!output.status.success());
@@ -459,7 +459,7 @@ fn doctor_rejects_unsupported_external_tool_versions() {
 fn doctor_fails_when_runtime_tools_are_unavailable() {
     let corpus = fixture_corpus();
     let empty_path = tempfile::tempdir().unwrap();
-    let output = receipts_with_path(corpus.path(), &["doctor"], empty_path.path());
+    let output = custody_with_path(corpus.path(), &["doctor"], empty_path.path());
 
     assert!(!output.status.success());
     assert!(stdout(&output).contains("mutool: missing"));
@@ -475,7 +475,7 @@ fn aggregate_commands_abort_before_judging_when_pdf_tools_are_unavailable() {
         &["check", "missing-evidence"][..],
         &["audit", "missing-evidence"][..],
     ] {
-        let output = receipts_with_path(corpus.path(), args, empty_path.path());
+        let output = custody_with_path(corpus.path(), args, empty_path.path());
         let stderr = stderr(&output);
 
         assert!(!output.status.success());
@@ -488,11 +488,11 @@ fn aggregate_commands_abort_before_judging_when_pdf_tools_are_unavailable() {
 fn locate_refuses_ocr_fallback_when_disabled() {
     let corpus = fixture_corpus();
     fs::write(
-        corpus.path().join("receipts.yaml"),
+        corpus.path().join("custody.yaml"),
         "cache:\n  root: \".cache/pdf-text\"\npdf:\n  ocr:\n    enabled: false\n",
     )
     .unwrap();
-    let output = receipts(
+    let output = custody(
         corpus.path(),
         &[
             "locate",
@@ -521,7 +521,7 @@ fn authoring_commands_keep_human_output_when_stdout_is_captured() {
         fs::create_dir_all(temp.path().join(path)).unwrap();
     }
     fs::write(
-        temp.path().join("receipts.yaml"),
+        temp.path().join("custody.yaml"),
         "cache:\n  root: \".cache/pdf-text\"\n",
     )
     .unwrap();
@@ -537,7 +537,7 @@ fn authoring_commands_keep_human_output_when_stdout_is_captured() {
     .unwrap();
     fs::write(temp.path().join("pdfs/smith-2019.pdf"), TEXT_PDF).unwrap();
 
-    let locate = receipts_auto(
+    let locate = custody_auto(
         temp.path(),
         &[
             "locate",
@@ -553,7 +553,7 @@ fn authoring_commands_keep_human_output_when_stdout_is_captured() {
     assert!(locate.status.success(), "{}", stderr(&locate));
     assert!(stdout(&locate).starts_with("# PDF match diagnostic:"));
 
-    let propose = receipts_auto(temp.path(), &["propose", "smith-2019"]);
+    let propose = custody_auto(temp.path(), &["propose", "smith-2019"]);
     assert!(propose.status.success(), "{}", stderr(&propose));
     assert!(stdout(&propose).starts_with("# claim 0"));
 }
@@ -565,7 +565,7 @@ fn locate_source_flag_selects_named_source_templates() {
         fs::create_dir_all(temp.path().join(path)).unwrap();
     }
     fs::write(
-        temp.path().join("receipts.yaml"),
+        temp.path().join("custody.yaml"),
         concat!(
             "cache:\n  root: \".cache/pdf-text\"\n",
             "corpus:\n",
@@ -606,7 +606,7 @@ fn locate_source_flag_selects_named_source_templates() {
         "1",
     ];
 
-    let default_run = receipts(temp.path(), &exact_args);
+    let default_run = custody(temp.path(), &exact_args);
     assert!(!default_run.status.success());
     let default_stderr = stderr(&default_run);
     assert!(
@@ -616,7 +616,7 @@ fn locate_source_flag_selects_named_source_templates() {
 
     let mut supplement_args = exact_args.to_vec();
     supplement_args.extend(["--source", "supplement"]);
-    let supplement_run = receipts(temp.path(), &supplement_args);
+    let supplement_run = custody(temp.path(), &supplement_args);
     assert!(!supplement_run.status.success());
     let supplement_stderr = stderr(&supplement_run);
     assert!(
@@ -638,7 +638,7 @@ fn audit_recognizes_all_configured_source_templates() {
         fs::create_dir_all(temp.path().join(path)).unwrap();
     }
     fs::write(
-        temp.path().join("receipts.yaml"),
+        temp.path().join("custody.yaml"),
         concat!(
             "cache:\n  root: \".cache/pdf-text\"\n",
             "corpus:\n",
@@ -718,7 +718,7 @@ evidence:
     )
     .unwrap();
 
-    let output = receipts(temp.path(), &["audit", "doc-001"]);
+    let output = custody(temp.path(), &["audit", "doc-001"]);
     let stderr_text = stderr(&output);
 
     assert!(
@@ -750,7 +750,7 @@ fn propose_emits_candidates_for_claims_without_evidence() {
         fs::create_dir_all(temp.path().join(path)).unwrap();
     }
     fs::write(
-        temp.path().join("receipts.yaml"),
+        temp.path().join("custody.yaml"),
         "cache:\n  root: \".cache/pdf-text\"\n",
     )
     .unwrap();
@@ -766,7 +766,7 @@ fn propose_emits_candidates_for_claims_without_evidence() {
     .unwrap();
     fs::write(temp.path().join("pdfs/smith-2019.pdf"), TEXT_PDF).unwrap();
 
-    let output = receipts_json(temp.path(), &["propose", "smith-2019"]);
+    let output = custody_json(temp.path(), &["propose", "smith-2019"]);
     assert!(output.status.success(), "{}", stderr(&output));
 
     let stdout = stdout(&output);
@@ -805,12 +805,12 @@ fn propose_json_shape_is_stable_for_zero_and_two_summaries() {
     let temp = tempfile::tempdir().unwrap();
     fs::create_dir(temp.path().join("summaries")).unwrap();
     fs::write(
-        temp.path().join("receipts.yaml"),
+        temp.path().join("custody.yaml"),
         "cache:\n  root: \".cache/pdf-text\"\n",
     )
     .unwrap();
 
-    let empty = receipts_json(temp.path(), &["propose"]);
+    let empty = custody_json(temp.path(), &["propose"]);
     assert!(empty.status.success(), "{}", stderr(&empty));
     let empty: serde_json::Value = serde_json::from_slice(&empty.stdout).unwrap();
     assert_eq!(
@@ -835,7 +835,7 @@ fn propose_json_shape_is_stable_for_zero_and_two_summaries() {
         fs::write(temp.path().join(format!("pdfs/{id}.pdf")), TEXT_PDF).unwrap();
     }
 
-    let pair = receipts_json(temp.path(), &["propose", "alpha", "beta"]);
+    let pair = custody_json(temp.path(), &["propose", "alpha", "beta"]);
     assert!(pair.status.success(), "{}", stderr(&pair));
     let pair: serde_json::Value = serde_json::from_slice(&pair.stdout).unwrap();
     assert_eq!(
@@ -852,7 +852,7 @@ fn propose_keeps_successes_when_other_summaries_cannot_be_read() {
         fs::create_dir_all(temp.path().join(path)).unwrap();
     }
     fs::write(
-        temp.path().join("receipts.yaml"),
+        temp.path().join("custody.yaml"),
         "cache:\n  root: \".cache/pdf-text\"\n",
     )
     .unwrap();
@@ -878,7 +878,7 @@ fn propose_keeps_successes_when_other_summaries_cannot_be_read() {
     .unwrap();
     fs::write(temp.path().join("pdfs/smith-2019.pdf"), TEXT_PDF).unwrap();
 
-    let output = receipts_json(temp.path(), &["propose"]);
+    let output = custody_json(temp.path(), &["propose"]);
     assert!(!output.status.success());
 
     let json_stdout = stdout(&output);
@@ -901,7 +901,7 @@ fn propose_keeps_successes_when_other_summaries_cannot_be_read() {
         })
     );
 
-    let human = receipts(temp.path(), &["propose"]);
+    let human = custody(temp.path(), &["propose"]);
     assert!(!human.status.success());
     assert!(stdout(&human).contains("# claim 0"));
     assert!(stderr(&human).contains("broken: summary_parse_failed"));
@@ -917,7 +917,7 @@ fn fixture_corpus() -> tempfile::TempDir {
     // the developer's platform cache directory and the suite stops being
     // hermetic.
     fs::write(
-        temp.path().join("receipts.yaml"),
+        temp.path().join("custody.yaml"),
         "cache:\n  root: \".cache/pdf-text\"\n",
     )
     .unwrap();
@@ -1016,7 +1016,7 @@ evidence:
     )
     .unwrap();
 
-    let output = receipts(temp, &["check", "--require-review", "missing-evidence"]);
+    let output = custody(temp, &["check", "--require-review", "missing-evidence"]);
     assert!(!output.status.success());
     assert!(
         stderr(&output).contains("missing_review"),
@@ -1079,7 +1079,7 @@ review:
     )
     .unwrap();
 
-    let output = receipts(temp, &["check", "--require-review", "missing-evidence"]);
+    let output = custody(temp, &["check", "--require-review", "missing-evidence"]);
     assert!(
         output.status.success(),
         "should pass with supported review: {}",
@@ -1134,7 +1134,7 @@ review:
     )
     .unwrap();
 
-    let output = receipts(temp, &["check", "--require-review", "missing-evidence"]);
+    let output = custody(temp, &["check", "--require-review", "missing-evidence"]);
     assert!(!output.status.success());
     assert!(
         stderr(&output).contains("unsupported_verdict"),
@@ -1190,7 +1190,7 @@ review:
     )
     .unwrap();
 
-    let output = receipts(temp, &["check", "missing-evidence"]);
+    let output = custody(temp, &["check", "missing-evidence"]);
     assert!(!output.status.success());
     assert!(
         stderr(&output).contains("stale_review_evidence"),
@@ -1214,7 +1214,7 @@ fn reports_uncovered_claims_using_the_configured_vocabulary() {
         fs::create_dir_all(temp.path().join(path)).unwrap();
     }
     fs::write(
-        temp.path().join("receipts.yaml"),
+        temp.path().join("custody.yaml"),
         concat!(
             "cache:\n  root: \".cache/pdf-text\"\n",
             "terms:\n  claim: proposition\n  claims: propositions\n",
@@ -1251,7 +1251,7 @@ evidence:
     .unwrap();
     fs::write(temp.path().join("pdfs/smith-2019.pdf"), b"%PDF-1.7\n").unwrap();
 
-    let output = receipts(temp.path(), &["check", "smith-2019"]);
+    let output = custody(temp.path(), &["check", "smith-2019"]);
     let stderr = stderr(&output);
 
     assert!(
@@ -1274,7 +1274,7 @@ fn audit_skips_hidden_entries_such_as_sync_directories() {
     std::fs::create_dir(corpus.path().join("summaries/.tmp.driveupload")).unwrap();
     std::fs::write(corpus.path().join("summaries/.hidden.yaml"), "id: hidden\n").unwrap();
 
-    let output = receipts(corpus.path(), &["audit"]);
+    let output = custody(corpus.path(), &["audit"]);
 
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(!stdout(&output).contains("hidden"), "{}", stdout(&output));

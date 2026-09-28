@@ -1,6 +1,6 @@
 use std::fs;
 
-use receipts::{
+use custody::{
     config,
     corpus::Corpus,
     hash::{sha256_bytes, sha256_file},
@@ -9,7 +9,7 @@ use receipts::{
 };
 
 fn write_config(dir: &std::path::Path, body: &str) {
-    fs::write(dir.join("receipts.yaml"), body).unwrap();
+    fs::write(dir.join("custody.yaml"), body).unwrap();
 }
 
 const TWO_SOURCE_CONFIG: &str = concat!(
@@ -52,7 +52,7 @@ fn discovers_the_corpus_root_from_a_nested_directory() {
     assert_eq!(corpus.root().canonicalize().unwrap(), root);
     assert_eq!(
         corpus.config_file().unwrap().file_name().unwrap(),
-        "receipts.yaml"
+        "custody.yaml"
     );
 }
 
@@ -109,7 +109,7 @@ fn treats_dotconfig_parent_as_the_corpus_root() {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir_all(dir.path().join(".config")).unwrap();
     fs::write(
-        dir.path().join(".config/receipts.yaml"),
+        dir.path().join(".config/custody.yaml"),
         "cache:\n  root: \"c\"\n",
     )
     .unwrap();

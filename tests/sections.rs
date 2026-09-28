@@ -1,4 +1,4 @@
-use receipts::{
+use custody::{
     markdown::{UnitKind, parse_units},
     sections::is_weak_section,
 };

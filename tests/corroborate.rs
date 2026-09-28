@@ -1,13 +1,13 @@
 use std::{fs, path::Path, process::Command};
 
 fn run(corpus: &Path, format: &str, args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_receipts"))
+    Command::new(env!("CARGO_BIN_EXE_custody"))
         .arg("-C")
         .arg(corpus)
         .args(["--format", format])
         .args(args)
         .output()
-        .expect("receipts executes")
+        .expect("custody executes")
 }
 
 fn stdout(output: &std::process::Output) -> String {
@@ -40,7 +40,7 @@ fn corpus(extra_config: &str) -> tempfile::TempDir {
         fs::create_dir_all(temp.path().join(path)).unwrap();
     }
     fs::write(
-        temp.path().join("receipts.yaml"),
+        temp.path().join("custody.yaml"),
         format!(
             concat!(
                 "corpus:\n",
@@ -207,9 +207,9 @@ fn an_independent_markdown_corroborates_without_being_cited() {
 fn derived_markdown_does_not_corroborate() {
     // Declare `default` as derived from the PDF: its agreement means nothing.
     let corpus = corpus("");
-    let config = fs::read_to_string(corpus.path().join("receipts.yaml")).unwrap();
+    let config = fs::read_to_string(corpus.path().join("custody.yaml")).unwrap();
     fs::write(
-        corpus.path().join("receipts.yaml"),
+        corpus.path().join("custody.yaml"),
         config.replace(
             "      markdown: [\"md/{id}.md\"]\n",
             "      markdown: [\"md/{id}.md\"]\n      corroborates: false\n",

@@ -1,4 +1,4 @@
-use receipts::markdown::{UnitIndex, UnitKind, exact_count, parse_units, resolve_unit};
+use custody::markdown::{UnitIndex, UnitKind, exact_count, parse_units, resolve_unit};
 
 #[test]
 fn keeps_gfm_table_cells_separate() {

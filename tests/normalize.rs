@@ -1,4 +1,4 @@
-use receipts::normalize::{NormalizeOptions, normalize_with};
+use custody::normalize::{NormalizeOptions, normalize_with};
 
 fn all() -> NormalizeOptions {
     NormalizeOptions::default()

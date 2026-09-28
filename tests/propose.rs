@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::{Result, bail};
-use receipts::{
+use custody::{
     coordinate::{ClaimIndex, Column, Line, Page},
     corpus::Corpus,
     evidence::{
@@ -318,7 +318,7 @@ impl Fixture {
         fs::create_dir_all(temp.path().join("md/smith-2019")).unwrap();
         fs::create_dir_all(temp.path().join("pdfs")).unwrap();
         fs::write(
-            temp.path().join("receipts.yaml"),
+            temp.path().join("custody.yaml"),
             "cache:\n  root: \".cache/pdf-text\"\n",
         )
         .unwrap();

@@ -1,6 +1,6 @@
 //! Configuration discovery and corpus-root resolution.
 //!
-//! Layout is declared in `receipts.yaml`, discovered by walking up from the
+//! Layout is declared in `custody.yaml`, discovered by walking up from the
 //! working directory. The directory containing that file is the corpus root.
 
 use std::collections::BTreeMap;
@@ -146,7 +146,7 @@ pub struct SourceTemplates {
     pub pdf: String,
     /// Whether this source's Markdown is an independent rendering of the
     /// text and therefore counts as a corroborating leg. Set false for
-    /// Markdown derived from the PDF's own text layer (`receipts extract`),
+    /// Markdown derived from the PDF's own text layer (`custody extract`),
     /// which can only ever agree with the PDF.
     #[serde(default = "default_true")]
     pub corroborates: bool,
@@ -327,7 +327,7 @@ pub struct Discovered {
 /// file; else the nearest `.git` boundary; else `start`.
 pub fn load(start: &Path, explicit: Option<&Path>) -> Result<Discovered> {
     let search = to_utf8(start)?;
-    let mut loader = librebar::config::ConfigLoader::new("receipts")
+    let mut loader = librebar::config::ConfigLoader::new("custody")
         .with_project_search(&search)
         .with_user_config(false)
         .without_environment();
@@ -339,13 +339,13 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> Result<Discovered> {
     // like it had declared `sources`.
     let (mut raw, sources): (Value, _) = loader
         .load()
-        .map_err(|error| anyhow!("failed to load receipts configuration: {error}"))?;
+        .map_err(|error| anyhow!("failed to load custody configuration: {error}"))?;
     if raw.is_null() {
         raw = Value::Object(Map::new());
     }
     desugar_corpus_layout(&mut raw)?;
     let config: Config =
-        serde_json::from_value(raw).context("failed to deserialize receipts configuration")?;
+        serde_json::from_value(raw).context("failed to deserialize custody configuration")?;
     validate(&config)?;
     let root = resolve_root(sources.project_file.as_deref(), start)?;
     let config_file = sources
@@ -480,7 +480,7 @@ fn resolve_root(project_file: Option<&Utf8Path>, start: &Path) -> Result<PathBuf
         let directory = file
             .parent()
             .with_context(|| format!("config file {file} has no parent directory"))?;
-        // `.config/receipts.yaml` sits one level below the corpus root.
+        // `.config/custody.yaml` sits one level below the corpus root.
         let root = if directory.file_name() == Some(".config") {
             directory
                 .parent()
@@ -516,9 +516,9 @@ fn resolve_root(project_file: Option<&Utf8Path>, start: &Path) -> Result<PathBuf
 
 /// Platform cache directory for extraction artifacts.
 ///
-/// `~/Library/Caches/receipts/pdf-text` on macOS.
+/// `~/Library/Caches/custody/pdf-text` on macOS.
 pub fn platform_cache_root() -> Result<PathBuf> {
-    let dirs = directories::ProjectDirs::from("", "", "receipts")
+    let dirs = directories::ProjectDirs::from("", "", "custody")
         .context("could not determine the platform cache directory")?;
     Ok(dirs.cache_dir().join("pdf-text"))
 }

@@ -1,4 +1,4 @@
-use receipts::tokens::{extract, is_covered, is_covered_case_insensitive, is_number_word};
+use custody::tokens::{extract, is_covered, is_covered_case_insensitive, is_number_word};
 
 #[test]
 fn extracts_decimal_with_percent() {

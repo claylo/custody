@@ -1,14 +1,14 @@
 use std::collections::BTreeMap;
 
-use receipts::coordinate::{ClaimIndex, Column, Line, Page};
-use receipts::evidence::{
+use custody::coordinate::{ClaimIndex, Column, Line, Page};
+use custody::evidence::{
     ClaimEvidence, DEFAULT_SOURCE, Evidence, Locator, MarkdownLocator, PdfBackend, PdfLocator,
     SourcePair, SourceRecord,
 };
-use receipts::hash::sha256_bytes;
-use receipts::markdown::UnitKind;
-use receipts::review::{Review, ReviewEntry, Verdict, evidence_sha256, validate_review};
-use receipts::terms::Terms;
+use custody::hash::sha256_bytes;
+use custody::markdown::UnitKind;
+use custody::review::{Review, ReviewEntry, Verdict, evidence_sha256, validate_review};
+use custody::terms::Terms;
 
 fn test_locator(exact: &str, page: usize) -> Locator {
     Locator {

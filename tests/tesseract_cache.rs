@@ -1,7 +1,7 @@
 use std::{cell::Cell, fs, path::Path};
 
 use anyhow::Result;
-use receipts::{
+use custody::{
     coordinate::Page,
     pdf::{
         cache::{CacheManifest, CacheReadPolicy, OcrCache, OcrProfile, cache_key},

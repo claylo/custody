@@ -1,8 +1,8 @@
-# receipts
+# custody
 
 Deterministic evidence validation for LLM summaries of PDF sources.
 
-`receipts` binds each claim in a summary document to literal text in both the
+`custody` binds each claim in a summary document to literal text in both the
 converted Markdown and the canonical PDF. It is deliberately strict: after
 [normalization](#normalization), every locator must occur exactly once inside
 one Markdown semantic unit and exactly once on one physical PDF page.
@@ -26,7 +26,7 @@ Both external tools are required, not optional:
 
 ```bash
 brew install mupdf tesseract
-receipts doctor
+custody doctor
 ```
 
 Supported runtime versions are MuPDF `>=1.28.0, <1.29.0` and Tesseract
@@ -42,7 +42,7 @@ versions, the extraction profiles, and the cache root. Run it first.
 
 ## Configuration
 
-Layout lives in `receipts.yaml`. The directory holding that file is the corpus
+Layout lives in `custody.yaml`. The directory holding that file is the corpus
 root, so the tool makes no assumptions about what else the corpus contains.
 Summary discovery skips symlinks and rejects directories deeper than the
 configured summary template can match.
@@ -101,7 +101,7 @@ copy and there is no converter output worth pinning.
 
 Each source also takes `corroborates` (default `true`): whether its Markdown
 is an independent rendering of the text. Set it `false` for Markdown derived
-from the PDF's own text layer (`receipts extract` output), which can only
+from the PDF's own text layer (`custody extract` output), which can only
 ever agree with the PDF and so must not count as a second opinion. See
 [Corroboration](#corroboration).
 
@@ -120,8 +120,8 @@ Summary and converted-Markdown inputs must resolve to regular files inside the
 corpus and may be at most 64 MiB each. The same boundary applies to `locate`,
 `check`, `audit`, and `propose`.
 
-Discovery walks up from the working directory, checking `.config/receipts.yaml`,
-`.receipts.yaml`, then `receipts.yaml` in each ancestor, stopping at a `.git`
+Discovery walks up from the working directory, checking `.config/custody.yaml`,
+`.custody.yaml`, then `custody.yaml` in each ancestor, stopping at a `.git`
 boundary. TOML and JSON are also accepted. If nothing is found, the corpus root
 falls back to the nearest `.git` boundary, then to the working directory, and
 `doctor` reports `config: ok (defaults)`.
@@ -131,7 +131,7 @@ inside a Git repository needs no config file at all. Use `--config FILE` to name
 one explicitly.
 
 Configuration is repository-scoped and deterministic: user-level config files
-and `RECEIPTS_*` environment variables are intentionally ignored. Only built-in
+and `CUSTODY_*` environment variables are intentionally ignored. Only built-in
 defaults, project discovery, and an explicit `--config` file participate; there
 are no hidden machine-wide layers.
 
@@ -226,19 +226,19 @@ is `error`. It is a map of where the evidence stands on one leg.
 ## Run
 
 ```bash
-receipts doctor
-receipts locate ID --claim 0 --exact "literal present in both sources" --page 3
-receipts check [ID...]
-receipts check --require-review [ID...]
-receipts audit [--strict] [ID...]
-receipts propose [ID...] [--all] [--candidates N]
-receipts extract ID [--source NAME] [--write [--force]]
-receipts schema
-receipts completions SHELL
+custody doctor
+custody locate ID --claim 0 --exact "literal present in both sources" --page 3
+custody check [ID...]
+custody check --require-review [ID...]
+custody audit [--strict] [ID...]
+custody propose [ID...] [--all] [--candidates N]
+custody extract ID [--source NAME] [--write [--force]]
+custody schema
+custody completions SHELL
 ```
 
 Report writes are fallible. If a downstream reader closes stdout early (for
-example, `receipts audit --format json | head -1`), receipts exits cleanly
+example, `custody audit --format json | head -1`), custody exits cleanly
 without creating a crash report.
 
 `locate` and `propose` default to their human, YAML-ready text even when stdout
@@ -296,7 +296,7 @@ claim with `--all`. The algorithm is deterministic: no model, no randomness,
 stable ordering. `propose` never writes to any file.
 
 `--candidates N` (default 3) limits output per claim. Human-readable output is
-commented YAML safe to paste and edit, with a suggested `receipts locate`
+commented YAML safe to paste and edit, with a suggested `custody locate`
 command to commit the top candidate. PDF verification examines at most `8 × N`
 previously unseen spans per claim and reuses the result when another claim
 scores the same source text.
@@ -338,7 +338,7 @@ corpus:
       markdown: ["md/{id}/{id}.md"]     # converter output, for tables
       pdf: "pdfs/{id}.pdf"
     native:
-      markdown: ["native-md/{id}.md"]   # receipts extract --source native --write
+      markdown: ["native-md/{id}.md"]   # custody extract --source native --write
       pdf: "pdfs/{id}.pdf"
 ```
 
@@ -349,13 +349,13 @@ OCR layer the PDF already carries, or nothing.
 
 Prints a machine-readable CLI Spec v0.2 JSON document describing every
 subcommand, flag, type, default, output field, and error code. This is the
-primary interface for agents integrating with `receipts` programmatically.
+primary interface for agents integrating with `custody` programmatically.
 
-`receipts schema propose` narrows to one command.
+`custody schema propose` narrows to one command.
 
 ### completions
 
-Generates shell completions: `receipts completions zsh > _receipts`.
+Generates shell completions: `custody completions zsh > _custody`.
 
 ## Evidence contract
 
@@ -414,15 +414,15 @@ against the live document — a heading change produces a `stale_section` error.
 
 Unknown fields are rejected inside `evidence` and below, but not at the document
 level, so a summary may carry its own metadata — `authors`, `doi`, `notes` —
-alongside the block `receipts` owns.
+alongside the block `custody` owns.
 
 The `evidence` property is optional, so a corpus can adopt evidence
-incrementally. Targeted `receipts check ID` always requires it, so a document
-without evidence is never a validated document. Bare `receipts check` validates
+incrementally. Targeted `custody check ID` always requires it, so a document
+without evidence is never a validated document. Bare `custody check` validates
 every evidence-bearing summary and skips the rest. `audit` reports missing
 evidence without failing; `audit --strict` makes it fatal.
 
-Only `receipts` should produce normalized literals, SHA-256 values, coordinates,
+Only `custody` should produce normalized literals, SHA-256 values, coordinates,
 pages, and backend names. Normalization is the fixed set of rules described
 under [Normalization](#normalization); the corpus configuration decides which
 optional rules are on, and a record validates only under the rules it was made
@@ -500,7 +500,7 @@ Two things stay fixed regardless. **Error codes** are vocabulary-free
 (`missing_evidence_entry`, `stale_hash`, `entry_out_of_range`,
 `duplicate_entry`), so a script consuming `--format json` is portable across
 corpora. Source-validation issues also keep stable `source_*` codes and carry
-the configured source name in a separate `source` field. `receipts schema`
+the configured source name in a separate `source` field. `custody schema`
 lists every declared error code from the same registry used to construct
 runtime issues. And **`--claim N` keeps its name**, because it takes an index
 rather than the word: the command is identical whichever vocabulary a document
@@ -518,7 +518,7 @@ records the applied render rotation.
 ```
 
 The root defaults to the platform cache directory
-(`~/Library/Caches/receipts/pdf-text` on macOS). Set `cache.root` to keep
+(`~/Library/Caches/custody/pdf-text` on macOS). Set `cache.root` to keep
 artifacts beside the corpus instead; a relative path resolves against the corpus
 root. Corpus-local entries are written but never read unless the operator passes
 `--trust-cache`.

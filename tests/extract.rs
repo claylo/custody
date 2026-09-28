@@ -1,13 +1,13 @@
 use std::{fs, path::Path, process::Command};
 
-fn receipts(corpus: &Path, args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_receipts"))
+fn custody(corpus: &Path, args: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_custody"))
         .arg("-C")
         .arg(corpus)
         .args(["--format", "text"])
         .args(args)
         .output()
-        .expect("receipts executes")
+        .expect("custody executes")
 }
 
 fn stdout(output: &std::process::Output) -> String {
@@ -39,7 +39,7 @@ fn corpus() -> tempfile::TempDir {
         fs::create_dir_all(temp.path().join(path)).unwrap();
     }
     fs::write(
-        temp.path().join("receipts.yaml"),
+        temp.path().join("custody.yaml"),
         concat!(
             "corpus:\n",
             "  summaries: \"summaries/{id}.yaml\"\n",
@@ -66,7 +66,7 @@ fn corpus() -> tempfile::TempDir {
 #[test]
 fn extract_prints_frontmatter_page_headings_and_dehyphenated_paragraphs() {
     let corpus = corpus();
-    let output = receipts(corpus.path(), &["extract", "smith-2019"]);
+    let output = custody(corpus.path(), &["extract", "smith-2019"]);
 
     assert!(output.status.success(), "{}", stderr(&output));
     let text = stdout(&output);
@@ -85,7 +85,7 @@ fn extract_prints_frontmatter_page_headings_and_dehyphenated_paragraphs() {
 #[test]
 fn extract_write_targets_the_named_source_and_refuses_to_overwrite() {
     let corpus = corpus();
-    let output = receipts(
+    let output = custody(
         corpus.path(),
         &["extract", "smith-2019", "--source", "native", "--write"],
     );
@@ -96,14 +96,14 @@ fn extract_write_targets_the_named_source_and_refuses_to_overwrite() {
     assert!(written.contains("attachment behaviour"));
     assert!(!corpus.path().join("md/smith-2019.md").exists());
 
-    let again = receipts(
+    let again = custody(
         corpus.path(),
         &["extract", "smith-2019", "--source", "native", "--write"],
     );
     assert!(!again.status.success());
     assert!(stderr(&again).contains("already exists; pass --force"));
 
-    let forced = receipts(
+    let forced = custody(
         corpus.path(),
         &[
             "extract",
@@ -120,7 +120,7 @@ fn extract_write_targets_the_named_source_and_refuses_to_overwrite() {
 #[test]
 fn extracted_markdown_binds_through_locate_and_check() {
     let corpus = corpus();
-    let output = receipts(
+    let output = custody(
         corpus.path(),
         &["extract", "smith-2019", "--source", "native", "--write"],
     );
@@ -128,7 +128,7 @@ fn extracted_markdown_binds_through_locate_and_check() {
 
     // The literal spans the rejoined hyphen on the PDF side, which only
     // works because both sides are dehyphenated by the same rule.
-    let located = Command::new(env!("CARGO_BIN_EXE_receipts"))
+    let located = Command::new(env!("CARGO_BIN_EXE_custody"))
         .arg("-C")
         .arg(corpus.path())
         .args(["--format", "json", "locate", "smith-2019", "--claim", "0"])
@@ -151,6 +151,6 @@ fn extracted_markdown_binds_through_locate_and_check() {
 #[test]
 fn extract_force_requires_write() {
     let corpus = corpus();
-    let output = receipts(corpus.path(), &["extract", "smith-2019", "--force"]);
+    let output = custody(corpus.path(), &["extract", "smith-2019", "--force"]);
     assert!(!output.status.success());
 }

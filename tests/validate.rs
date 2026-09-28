@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::{Result, bail};
-use receipts::{
+use custody::{
     coordinate::{ClaimIndex, Column, Line, Page},
     corpus::Corpus,
     evidence::{
@@ -323,7 +323,7 @@ fn each_named_source_resolves_against_its_own_files() {
     fs::create_dir_all(temp.path().join("md/smith-2019")).unwrap();
     fs::create_dir_all(temp.path().join("pdfs")).unwrap();
     fs::write(
-        temp.path().join("receipts.yaml"),
+        temp.path().join("custody.yaml"),
         concat!(
             "cache:\n  root: \".cache/pdf-text\"\n",
             "corpus:\n",
@@ -849,7 +849,7 @@ impl Fixture {
         fs::create_dir_all(temp.path().join("summaries")).unwrap();
         fs::create_dir_all(temp.path().join("md/smith-2019")).unwrap();
         fs::create_dir_all(temp.path().join("pdfs")).unwrap();
-        fs::write(temp.path().join("receipts.yaml"), config).unwrap();
+        fs::write(temp.path().join("custody.yaml"), config).unwrap();
         fs::write(temp.path().join("md/smith-2019/smith-2019.md"), markdown).unwrap();
         fs::write(temp.path().join("pdfs/smith-2019.pdf"), b"fixture PDF").unwrap();
         let corpus = Corpus::discover_from(temp.path(), None).unwrap();

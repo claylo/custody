@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, fmt::Write as _};
 
-use receipts::{
+use custody::{
     coordinate::{ClaimIndex, Column, Line, Page},
     evidence::{
         ClaimEvidence, Evidence, Locator, MarkdownLocator, PdfBackend, PdfLocator, SourcePair,
@@ -275,7 +275,7 @@ evidence:
 #[test]
 fn exempt_words_gathers_author_surnames_from_dotted_paths() {
     let yaml = "id: x\ncitation:\n  authors:\n    - \"Bartholomew, Kim\"\n    - \"Horowitz, Leonard M.\"\n  title: t\nfindings: []\n";
-    let words = receipts::evidence::exempt_words(
+    let words = custody::evidence::exempt_words(
         yaml,
         &["citation.authors".to_owned(), "missing.path".to_owned()],
     )
@@ -285,7 +285,7 @@ fn exempt_words_gathers_author_surnames_from_dotted_paths() {
         vec!["bartholomew", "horowitz", "kim", "leonard", "m"]
     );
     assert!(
-        receipts::evidence::exempt_words(yaml, &[])
+        custody::evidence::exempt_words(yaml, &[])
             .unwrap()
             .is_empty()
     );

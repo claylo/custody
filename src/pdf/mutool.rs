@@ -65,7 +65,7 @@ impl Mutool {
         Ok(pages)
     }
 
-    /// Extract native text as per-page paragraphs, for `receipts extract`.
+    /// Extract native text as per-page paragraphs, for `custody extract`.
     pub fn native_blocks(&self, pdf: &Path) -> Result<Vec<PageBlocks>> {
         let source = self.stext(pdf, None)?;
         parse_stext_blocks(&source)

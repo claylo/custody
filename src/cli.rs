@@ -33,7 +33,7 @@ use crate::{
 // of the flattened `CommonArgs` struct and `--help` describes librebar instead
 // of this tool.
 #[command(
-    name = "receipts",
+    name = "custody",
     version,
     about = "Prove that summary claims are present in their Markdown and PDF sources",
     long_about = "Prove that summary claims are present in their Markdown and PDF sources.
@@ -44,7 +44,7 @@ PDF page, after normalization: Unicode whitespace runs collapse to one space,
 and by configuration line-end hyphenation is rejoined and typographic quotes
 fold to ASCII. Ambiguity is an error, not an occurrence to choose from.
 
-Corpus layout is declared in receipts.yaml, discovered by walking up from the
+Corpus layout is declared in custody.yaml, discovered by walking up from the
 working directory."
 )]
 pub struct Cli {
@@ -342,7 +342,7 @@ fn extract(
     let _ = writeln!(markdown, "source_sha256: {pdf_sha256}");
     let _ = writeln!(
         markdown,
-        "extractor: receipts {} ({}, {mutool_version})",
+        "extractor: custody {} ({}, {mutool_version})",
         env!("CARGO_PKG_VERSION"),
         crate::pdf::mutool::PROFILE_NAME
     );
@@ -648,7 +648,7 @@ fn doctor(corpus: &Corpus, tools: &PdfTools, json: bool, quiet: bool) -> Result<
         .root()
         .join(format!(".doctor-{}", std::process::id()));
     let (cache_ok, cache_value) =
-        match fs::write(&probe, b"receipts doctor").and_then(|()| fs::remove_file(&probe)) {
+        match fs::write(&probe, b"custody doctor").and_then(|()| fs::remove_file(&probe)) {
             Ok(()) => (true, tools.cache.root().display().to_string()),
             Err(error) => (false, error.to_string()),
         };
@@ -1237,7 +1237,7 @@ fn print_propose_human(
             print_line(format_args!("#"))?;
             print_line(format_args!("#   accept [{}]:", candidate_label(0)))?;
             print_line(format_args!(
-                "#     receipts locate {} --claim {} \\",
+                "#     custody locate {} --claim {} \\",
                 report.id, proposal.claim
             ))?;
             print_line(format_args!(
@@ -1453,8 +1453,8 @@ mod tests {
 
     #[test]
     fn corpus_local_cache_requires_explicit_cli_trust() {
-        let default = Cli::try_parse_from(["receipts", "doctor"]).unwrap();
-        let opted_in = Cli::try_parse_from(["receipts", "--trust-cache", "doctor"]).unwrap();
+        let default = Cli::try_parse_from(["custody", "doctor"]).unwrap();
+        let opted_in = Cli::try_parse_from(["custody", "--trust-cache", "doctor"]).unwrap();
 
         assert!(!default.trust_cache);
         assert!(opted_in.trust_cache);

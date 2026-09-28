@@ -1,4 +1,4 @@
-use receipts::pdf::{
+use custody::pdf::{
     matching_bbox,
     mutool::{parse_stext, parse_stext_blocks, validate_version},
 };

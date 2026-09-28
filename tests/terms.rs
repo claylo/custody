@@ -1,4 +1,4 @@
-use receipts::terms::Terms;
+use custody::terms::Terms;
 use serde_json::json;
 
 fn proposition() -> Terms {
