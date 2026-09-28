@@ -12,6 +12,13 @@ keywords = ["pdf", "ocr", "evidence", "validation", "markdown"]
 categories = ["command-line-utilities", "text-processing"]
 include = ["/src/**", "/README.md", "/LICENSE-*", "/custody.yaml"]
 
+# xtask generates man pages and shell completions for release archives
+# (canon cd.yml runs `cargo run --package xtask -- man|completions`). The
+# root package stays the only default member.
+[workspace]
+members = ["xtask"]
+resolver = "3"
+
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4.6", features = ["derive"] }

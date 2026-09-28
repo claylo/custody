@@ -1,0 +1,3 @@
+[alias]
+# xtask convenience (use: cargo xtask <command>)
+xtask = "run --package xtask --"
