@@ -1,0 +1,47 @@
+# gh-coda config
+# See: https://github.com/lovelesslabs/gh-coda
+
+description: Deterministic evidence validation for LLM summaries of PDF sources
+topics: [rust, cli, pdf, ocr, llm, evidence, validation, markdown]
+
+# Merge settings
+auto_merge: true
+delete_branch_on_merge: true
+allow_squash_merge: true
+allow_merge_commit: false
+allow_rebase_merge: true
+
+# Features
+enable_discussions: false
+enable_projects: false
+enable_wiki: false
+
+# Security
+enable_secret_scanning: true
+enable_secret_scanning_push_protection: true
+dependabot_alerts: true
+dependabot_security_updates: true
+
+# 1Password secrets sync (GPG_RELEASE_KEY, GPG_PASSPHRASE, HOMEBREW_COMMITTER_TOKEN)
+secrets_tags: claylo-github-actions
+secrets_app: actions
+
+# Channel toggles follow the distro policy: humans install custody (cargo,
+# brew tap, release binaries); nothing installs it as a machine dependency,
+# so no npm. No deb/rpm: distro MuPDF/Tesseract fall outside the supported
+# ranges, so a system package couldn't declare working dependencies.
+variables:
+  PROJECT_NAME: custody
+  CARGO_PUBLISH_PACKAGES: custody
+  CRATES_IO_ENABLED: true
+  HOMEBREW_ENABLED: true
+  HOMEBREW_TAP: "claylo/homebrew-tap"
+  GPG_SIGNING_ENABLED: true
+  NPM_ENABLED: false
+  DEB_ENABLED: false
+  RPM_ENABLED: false
+  SBOM_ENABLED: true
+  AUTO_RELEASE_ENABLED: false
+
+# gh-coda has no `environments:` key yet. The `release` environment that
+# cd.yml's OIDC publish jobs need already exists on claylo/custody.
