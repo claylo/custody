@@ -65,9 +65,9 @@ What's needed:
 - **Legs and corroboration.** Today `pdf_confirmed` is the only leg a
   recorded locator produces (`src/validate.rs:89-142`). The recorded Markdown
   half is a pass/fail gate but never a leg; Markdown only counts through
-  whole-document corroboration. A Markdown-only source needs its recorded
-  half to count as a leg (named `markdown`?), so that `single_leg` policy
-  applies the same way to every source. **Open question for Clay.**
+  whole-document corroboration. **Decided (Clay, 2026-09-30):** a
+  Markdown-only locator's recorded half counts as a `markdown` leg, so
+  `single_leg` policy applies the same way to every source.
 - **Tooling.** Require mutool and tesseract only when some source in play
   declares a PDF. `doctor` should report them as optional when no source
   does.
@@ -90,9 +90,15 @@ ordinal. `MarkdownUnit` has no ordinal either (`src/markdown.rs:47-54`).
 - Add an optional `paragraph: N` to `MarkdownLocator`: the 1-based count of
   paragraph units since the nearest heading. `check` validates it when present,
   as it does `section`. Records without it still validate.
-- **Decide what counts.** APA counts paragraphs. Should a blockquote or a list
-  item between two paragraphs advance N? I'd count `paragraph` units only and
-  record N only when the locator's unit is `paragraph`, but that's Clay's call.
+- **What counts is still open, but the test is settled.** Clay: it's about how
+  the text looks to someone trying to find the reference in the source. N
+  should be the count a reader arrives at scanning down from the heading in
+  the rendered book, not a count of Markdown unit kinds. Blockquotes and list
+  items look like separate blocks, so they probably advance N; table cells and
+  captions probably don't. Those two guesses are mine, not decided. Settle the
+  rule against real rendered pages before coding it. The AAP case chapters
+  (6–9) are a good test, since their story transcripts are set off as
+  separate blocks.
 - This depends on real section paths. `section` comes from pulldown-cmark
   heading events (`src/markdown.rs:130-134`, `:278-287`), and publisher ePubs
   often style section heads as paragraphs. fte's `feat/epub-toc-headings`
