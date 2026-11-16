@@ -1,5 +1,11 @@
 # Needs before the first release
 
+> **Superseded 2026-11-16 (Clay):** 0.1.0 ships as it stood on 2026-09-28, on
+> librebar 0.6. All three items below move to 0.2, with the core/CLI split
+> first. The "before 0.1.0" framing in the rest of this document no longer
+> applies; the analysis and the suggested order still do. The README now says
+> the library surface is unstable until `custody-core` lands.
+
 **Written 2026-09-30**, from a separate session that tried to bring a
 publisher ePub into the summary pipeline. There is no PDF, and a PDF made from the ePub would only carry a renderer's page numbers.
 

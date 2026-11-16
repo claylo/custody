@@ -27,6 +27,11 @@ Homebrew pulls in MuPDF and Tesseract. From crates.io, install the two
 cargo install custody
 ```
 
+`custody` is a command-line tool. The crate also exposes its modules as a
+library, but that surface is unstable in 0.1 and will move to a separate
+`custody-core` crate in 0.2. Depend on the CLI and its JSON output, not on the
+Rust API.
+
 ## Runtime dependencies
 
 Both external tools are required, not optional:
