@@ -20,7 +20,7 @@ enable_wiki: false
 enable_secret_scanning: true
 enable_secret_scanning_push_protection: true
 dependabot_alerts: true
-dependabot_security_updates: true
+dependabot_security_updates: false
 
 # 1Password secrets sync (GPG_RELEASE_KEY, GPG_PASSPHRASE, HOMEBREW_COMMITTER_TOKEN)
 secrets_tags: claylo-github-actions
