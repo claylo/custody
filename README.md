@@ -17,7 +17,14 @@ tool never produces a verdict and never treats one as truth.
 ## Install
 
 ```bash
-cargo install --path .
+brew install claylo/tap/custody
+```
+
+Homebrew pulls in MuPDF and Tesseract. From crates.io, install the two
+[runtime dependencies](#runtime-dependencies) yourself:
+
+```bash
+cargo install custody
 ```
 
 ## Runtime dependencies
